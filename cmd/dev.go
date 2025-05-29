@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"goflux/internal/typegen/analyzer"
@@ -22,6 +23,7 @@ import (
 	"goflux/internal/typegen/generator"
 
 	"github.com/creack/pty"
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -40,6 +42,16 @@ type DevOrchestrator struct {
 	isShuttingDown bool
 	config         *ProjectConfig
 	debug          bool
+	proxyServer    *http.Server
+	shutdownChan   chan bool
+	fileWatcher    *fsnotify.Watcher
+	lastTypeGen    time.Time
+	typeGenMutex   sync.Mutex
+	backendProcess *exec.Cmd
+	backendMutex   sync.Mutex
+	// Dynamic port assignments
+	frontendPort int
+	backendPort  int
 }
 
 func DevCmd() *cobra.Command {
@@ -253,6 +265,11 @@ func (o *DevOrchestrator) startProcess(processInfo *ProcessInfo) error {
 			}
 		}()
 	} else {
+		// Set process group for non-PTY processes so we can kill the entire process tree
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setpgid: true,
+		}
+
 		// Use regular pipes for frontend and other processes
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -440,10 +457,12 @@ func (o *DevOrchestrator) formatHttpLog(line string) {
 
 func (o *DevOrchestrator) setupGracefulShutdown() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	// Capture more signal types to ensure cleanup
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 
 	go func() {
-		<-c
+		sig := <-c
+		o.log(fmt.Sprintf("📡 Received signal: %v", sig), "\x1b[33m")
 		if !o.isShuttingDown {
 			o.isShuttingDown = true
 			o.shutdown()
@@ -454,36 +473,142 @@ func (o *DevOrchestrator) setupGracefulShutdown() {
 func (o *DevOrchestrator) shutdown() {
 	o.log("🔄 Shutting down development environment...", "\x1b[33m")
 
-	for _, processInfo := range o.processes {
-		if processInfo.Process != nil && processInfo.Process.Process != nil {
-			o.log(fmt.Sprintf("🛑 Stopping %s...", processInfo.Name), processInfo.Color)
+	// Close file watcher first
+	if o.fileWatcher != nil {
+		o.log("🛑 Stopping file watcher...", "\x1b[36m")
+		o.fileWatcher.Close()
+	}
 
-			// Try graceful shutdown first
-			processInfo.Process.Process.Signal(syscall.SIGTERM)
+	// Stop our backend process
+	o.backendMutex.Lock()
+	if o.backendProcess != nil {
+		o.stopBackendProcessUnsafe()
+	}
+	o.backendMutex.Unlock()
 
-			// Force kill after 5 seconds if still running
-			go func(proc *exec.Cmd, name string) {
-				time.Sleep(5 * time.Second)
-				if proc.Process != nil {
-					o.log(fmt.Sprintf("💀 Force killing %s...", name), "\x1b[31m")
-					proc.Process.Kill()
-				}
-			}(processInfo.Process, processInfo.Name)
+	// Shutdown proxy server
+	if o.proxyServer != nil {
+		o.log("🛑 Stopping proxy server...", "\x1b[36m")
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := o.proxyServer.Shutdown(ctx); err != nil {
+			o.log("⚠️  Force closing proxy server", "\x1b[33m")
 		}
 	}
 
-	time.Sleep(1 * time.Second)
+	// Channel to track process shutdown completion
+	done := make(chan bool, len(o.processes))
+
+	// Step 1: Try graceful shutdown of remaining processes (frontend)
+	for _, processInfo := range o.processes {
+		if processInfo.Process != nil && processInfo.Process.Process != nil {
+			o.log(fmt.Sprintf("🛑 Stopping %s (PID: %d)...", processInfo.Name, processInfo.Process.Process.Pid), processInfo.Color)
+
+			// Regular process with process group
+			pgid, err := syscall.Getpgid(processInfo.Process.Process.Pid)
+			if err != nil {
+				pgid = processInfo.Process.Process.Pid // fallback to PID if can't get PGID
+			}
+
+			// Try graceful shutdown first - send SIGTERM to the entire process group
+			syscall.Kill(-pgid, syscall.SIGTERM)
+
+			go func(proc *exec.Cmd, name string, processGroupID int) {
+				defer func() { done <- true }()
+
+				// Wait up to 5 seconds for graceful shutdown
+				gracefulDone := make(chan error, 1)
+				go func() {
+					gracefulDone <- proc.Wait()
+				}()
+
+				select {
+				case err := <-gracefulDone:
+					if err != nil {
+						o.log(fmt.Sprintf("⚠️  %s exited with error: %v", name, err), "\x1b[33m")
+					} else {
+						o.log(fmt.Sprintf("✅ %s stopped gracefully", name), "\x1b[32m")
+					}
+				case <-time.After(5 * time.Second):
+					// Force kill the entire process group
+					o.log(fmt.Sprintf("💀 Force killing %s and children (timeout)...", name), "\x1b[31m")
+					syscall.Kill(-processGroupID, syscall.SIGKILL)
+					// Also try individual process kill as fallback
+					if proc.Process != nil {
+						proc.Process.Kill()
+					}
+				}
+			}(processInfo.Process, processInfo.Name, pgid)
+		} else {
+			done <- true // No process to stop
+		}
+	}
+
+	// Wait for all processes to finish or timeout after 10 seconds
+	timeout := time.After(10 * time.Second)
+	processesLeft := len(o.processes)
+
+	for processesLeft > 0 {
+		select {
+		case <-done:
+			processesLeft--
+		case <-timeout:
+			o.log("⚠️  Timeout waiting for processes to stop", "\x1b[33m")
+			processesLeft = 0
+		}
+	}
+
+	// Step 2: Nuclear option - kill anything listening on our ports
+	o.log("🧹 Cleaning up any remaining processes on our ports...", "\x1b[33m")
+	o.forceKillPortProcesses()
+
 	o.log("✅ Development environment stopped", "\x1b[32m")
-	os.Exit(0)
+
+	// Signal the main thread that shutdown is complete
+	select {
+	case o.shutdownChan <- true:
+	default:
+	}
+}
+
+// forceKillPortProcesses kills any processes still listening on our development ports
+func (o *DevOrchestrator) forceKillPortProcesses() {
+	ports := []int{o.config.Port, o.frontendPort, o.backendPort}
+
+	for _, port := range ports {
+		if port == 0 {
+			continue
+		}
+
+		// Use lsof to find processes listening on the port
+		cmd := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", port))
+		output, err := cmd.Output()
+		if err != nil {
+			continue // No process found on this port
+		}
+
+		pids := strings.Fields(strings.TrimSpace(string(output)))
+		for _, pidStr := range pids {
+			if pidStr == "" {
+				continue
+			}
+
+			// Kill each PID
+			killCmd := exec.Command("kill", "-9", pidStr)
+			if err := killCmd.Run(); err == nil {
+				o.log(fmt.Sprintf("💀 Force killed process %s on port %d", pidStr, port), "\x1b[31m")
+			}
+		}
+	}
 }
 
 func (o *DevOrchestrator) startProxy() {
 	// Create proxy to backend
-	backendURL, _ := url.Parse(fmt.Sprintf("http://localhost:%s", o.config.Backend.Port))
+	backendURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", o.backendPort))
 	backendProxy := httputil.NewSingleHostReverseProxy(backendURL)
 
 	// Create proxy to frontend
-	frontendURL, _ := url.Parse("http://localhost:3001")
+	frontendURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", o.frontendPort))
 	frontendProxy := httputil.NewSingleHostReverseProxy(frontendURL)
 
 	// Create HTTP handler
@@ -501,13 +626,13 @@ func (o *DevOrchestrator) startProxy() {
 	})
 
 	// Start proxy server
-	server := &http.Server{
-		Addr:    ":3000",
+	o.proxyServer = &http.Server{
+		Addr:    fmt.Sprintf(":%d", o.config.Port),
 		Handler: handler,
 	}
 
-	o.log("✅ Development proxy started on port 3000", "\x1b[36m")
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	o.log(fmt.Sprintf("✅ Development proxy started on port %d", o.config.Port), "\x1b[36m")
+	if err := o.proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		o.log(fmt.Sprintf("❌ Proxy server error: %v", err), "\x1b[31m")
 	}
 }
@@ -521,8 +646,8 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 		return fmt.Errorf("failed to create build directory: %w", err)
 	}
 
-	// Fetch OpenAPI spec from running server
-	openAPIURL := fmt.Sprintf("http://localhost:%s/openapi.json", o.config.Backend.Port)
+	// Fetch OpenAPI spec from the server
+	openAPIURL := fmt.Sprintf("http://localhost:%d/api/openapi.json", o.backendPort)
 
 	// Wait a bit more to ensure the server is fully ready
 	time.Sleep(1 * time.Second)
@@ -586,9 +711,29 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 }
 
 func (o *DevOrchestrator) Start() error {
+	o.shutdownChan = make(chan bool, 1)
 	o.setupGracefulShutdown()
 
+	// Ensure cleanup happens no matter what
+	defer func() {
+		if !o.isShuttingDown {
+			o.log("🚨 Emergency cleanup triggered", "\x1b[31m")
+			o.isShuttingDown = true
+			o.shutdown()
+		}
+	}()
+
 	o.log(fmt.Sprintf("🚀 Starting GoFlux development environment for '%s'", o.config.Name), "\x1b[32m")
+
+	// Assign dynamic ports
+	o.frontendPort = o.findFreePort(o.config.Port + 1)
+	o.backendPort = o.findFreePort(o.frontendPort + 1)
+
+	o.log(fmt.Sprintf("🔧 Assigned ports - Frontend: %d, Backend: %d, Proxy: %d", o.frontendPort, o.backendPort, o.config.Port), "\x1b[36m")
+
+	// Clean up any existing processes on our ports before starting
+	o.log("🧹 Cleaning up any existing processes on target ports...", "\x1b[33m")
+	o.forceKillPortProcesses()
 
 	// Setup frontend if needed
 	if err := o.setupFrontendIfNeeded(); err != nil {
@@ -617,21 +762,16 @@ func (o *DevOrchestrator) Start() error {
 		o.log("⚠️  Warning: Could not install Go dependencies", "\x1b[33m")
 	}
 
-	// Define processes
+	// Define processes with dynamic ports
+	frontendDevCmd := strings.Replace(o.config.Frontend.DevCmd, "3001", fmt.Sprintf("%d", o.frontendPort), -1)
+
 	o.processes = []ProcessInfo{
 		{
 			Name:    "Frontend",
 			Command: "sh",
-			Args:    []string{"-c", o.config.Frontend.DevCmd},
+			Args:    []string{"-c", frontendDevCmd},
 			Dir:     "",
 			Color:   "\x1b[35m", // Magenta
-		},
-		{
-			Name:    "Backend",
-			Command: "air",
-			Args:    []string{},
-			Dir:     "",
-			Color:   "\x1b[34m", // Blue
 		},
 	}
 
@@ -642,20 +782,28 @@ func (o *DevOrchestrator) Start() error {
 
 	// Wait for frontend to be ready
 	o.log("⏳ Waiting for frontend dev server...", "\x1b[33m")
-	if !o.waitForPort("3001", 15*time.Second) {
-		return fmt.Errorf("frontend dev server failed to start on port 3001")
+	if !o.waitForPort(fmt.Sprintf("%d", o.frontendPort), 15*time.Second) {
+		return fmt.Errorf("frontend dev server failed to start on port %d", o.frontendPort)
 	}
-	o.log("✅ Frontend dev server ready on port 3001", "\x1b[32m")
+	o.log(fmt.Sprintf("✅ Frontend dev server ready on port %d", o.frontendPort), "\x1b[32m")
 
-	// Start backend
-	if err := o.startProcess(&o.processes[1]); err != nil {
+	// Start backend with our own process manager
+	if err := o.startBackendProcess(); err != nil {
 		return err
 	}
 
 	// Wait for backend to be ready
 	o.log("⏳ Waiting for backend server...", "\x1b[33m")
-	if !o.waitForPort(o.config.Backend.Port, 15*time.Second) {
-		return fmt.Errorf("backend server failed to start on port %s", o.config.Backend.Port)
+	if !o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
+		return fmt.Errorf("backend server failed to start on port %d", o.backendPort)
+	}
+
+	// Setup file watcher for automatic type generation
+	if err := o.setupFileWatcher(); err != nil {
+		o.log("⚠️  Warning: Could not setup file watcher", "\x1b[33m")
+		if o.debug {
+			o.log(fmt.Sprintf("File watcher error: %v", err), "\x1b[31m")
+		}
 	}
 
 	// Fetch and save OpenAPI spec from running server
@@ -665,10 +813,10 @@ func (o *DevOrchestrator) Start() error {
 			o.log(fmt.Sprintf("OpenAPI fetch error: %v", err), "\x1b[31m")
 		}
 	} else {
-		// Now generate types with fresh OpenAPI spec
-		o.log("🔧 Generating API types from OpenAPI spec...", "\x1b[36m")
+		// Generate initial types
+		o.log("🔧 Generating initial API types...", "\x1b[36m")
 		if err := o.generateTypes(); err != nil {
-			o.log("⚠️  Warning: Could not generate types", "\x1b[33m")
+			o.log("⚠️  Warning: Could not generate initial types", "\x1b[33m")
 			if o.debug {
 				o.log(fmt.Sprintf("Type generation error: %v", err), "\x1b[31m")
 			}
@@ -681,21 +829,23 @@ func (o *DevOrchestrator) Start() error {
 
 	// Wait for proxy to be ready
 	o.log("⏳ Waiting for proxy server...", "\x1b[33m")
-	if !o.waitForPort("3000", 10*time.Second) {
-		return fmt.Errorf("proxy server failed to start on port 3000")
+	if !o.waitForPort(fmt.Sprintf("%d", o.config.Port), 10*time.Second) {
+		return fmt.Errorf("proxy server failed to start on port %d", o.config.Port)
 	}
 
 	o.log("🎉 Development environment ready!", "\x1b[32m")
-	o.log("🌐 Development: http://localhost:3000 (proxy)", "\x1b[36m")
-	o.log("🌐 Frontend: http://localhost:3001 (direct)", "\x1b[36m")
-	o.log(fmt.Sprintf("🔌 Backend: http://localhost:%s (direct)", o.config.Backend.Port), "\x1b[36m")
-	o.log("📡 API: http://localhost:3000/api/health", "\x1b[36m")
-	o.log("⚡ Hot reload enabled for both frontend and backend", "\x1b[36m")
+	o.log(fmt.Sprintf("🌐 Development: http://localhost:%d (proxy)", o.config.Port), "\x1b[36m")
+	o.log(fmt.Sprintf("🌐 Frontend: http://localhost:%d (direct)", o.frontendPort), "\x1b[36m")
+	o.log(fmt.Sprintf("🔌 Backend: http://localhost:%d (direct)", o.backendPort), "\x1b[36m")
+	o.log(fmt.Sprintf("📡 API: http://localhost:%d/api/health", o.config.Port), "\x1b[36m")
+	o.log("⚡ Hot reload enabled with intelligent file watching", "\x1b[36m")
+	o.log("🔄 Automatic backend restart and type generation", "\x1b[36m")
 	o.log("", "")
 	o.log("Press Ctrl+C to stop all servers", "\x1b[33m")
 
-	// Keep the process alive
-	select {} // Block forever until interrupted
+	// Wait for shutdown signal
+	<-o.shutdownChan
+	return nil
 }
 
 func readConfig(path string) (*ProjectConfig, error) {
@@ -710,4 +860,193 @@ func readConfig(path string) (*ProjectConfig, error) {
 	}
 
 	return &config, nil
+}
+
+func (o *DevOrchestrator) findFreePort(startPort int) int {
+	for port := startPort; port < startPort+100; port++ {
+		if !o.checkPort(fmt.Sprintf("%d", port)) {
+			return port
+		}
+	}
+	// Fallback to a random high port if we can't find one in range
+	return startPort + 1000
+}
+
+func (o *DevOrchestrator) setupFileWatcher() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	o.fileWatcher = watcher
+
+	// Watch directories that contain API-related files
+	watchDirs := []string{
+		"internal/api",
+		"internal/types",
+		"cmd/server",
+	}
+
+	for _, dir := range watchDirs {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			if err := o.fileWatcher.Add(dir); err != nil {
+				o.log(fmt.Sprintf("⚠️  Warning: Could not watch %s: %v", dir, err), "\x1b[33m")
+			}
+		}
+	}
+
+	// Start watching in a goroutine
+	go o.handleFileEvents()
+
+	return nil
+}
+
+func (o *DevOrchestrator) handleFileEvents() {
+	for {
+		select {
+		case event, ok := <-o.fileWatcher.Events:
+			if !ok {
+				return
+			}
+
+			// Only trigger on .go files in API-related directories
+			if strings.HasSuffix(event.Name, ".go") &&
+				(event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
+
+				// Debounce - only restart if it's been at least 2 seconds since last restart
+				o.typeGenMutex.Lock()
+				if time.Since(o.lastTypeGen) > 2*time.Second {
+					o.lastTypeGen = time.Now()
+					o.typeGenMutex.Unlock()
+
+					// Restart backend and regenerate types
+					go func(fileName string) {
+						o.log(fmt.Sprintf("📝 %s changed, restarting backend...", filepath.Base(fileName)), "\x1b[36m")
+
+						// Restart backend directly
+						if err := o.restartBackend(); err != nil {
+							o.log(fmt.Sprintf("❌ Failed to restart backend: %v", err), "\x1b[31m")
+							return
+						}
+
+						// Wait for backend to be ready
+						o.log("⏳ Waiting for backend to be ready...", "\x1b[33m")
+						if o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
+							// Small delay to ensure server is fully initialized
+							time.Sleep(1 * time.Second)
+
+							// Fetch fresh OpenAPI spec
+							if err := o.fetchAndSaveOpenAPISpec(); err != nil {
+								o.log("⚠️  Warning: Could not fetch fresh OpenAPI spec", "\x1b[33m")
+								if o.debug {
+									o.log(fmt.Sprintf("OpenAPI fetch error: %v", err), "\x1b[31m")
+								}
+								return
+							}
+
+							// Generate types with fresh spec
+							o.log("🔧 Regenerating types from fresh OpenAPI spec...", "\x1b[36m")
+							if err := o.generateTypes(); err != nil {
+								o.log("⚠️  Warning: Could not regenerate types", "\x1b[33m")
+								if o.debug {
+									o.log(fmt.Sprintf("Type generation error: %v", err), "\x1b[31m")
+								}
+							} else {
+								o.log("✅ Backend restarted and types regenerated!", "\x1b[32m")
+							}
+						} else {
+							o.log("⚠️  Backend not ready after restart, skipping type generation", "\x1b[33m")
+						}
+					}(event.Name)
+				} else {
+					o.typeGenMutex.Unlock()
+				}
+			}
+
+		case err, ok := <-o.fileWatcher.Errors:
+			if !ok {
+				return
+			}
+			if o.debug {
+				o.log(fmt.Sprintf("File watcher error: %v", err), "\x1b[31m")
+			}
+		}
+	}
+}
+
+func (o *DevOrchestrator) startBackendProcess() error {
+	o.backendMutex.Lock()
+	defer o.backendMutex.Unlock()
+
+	// Stop existing process if running
+	if o.backendProcess != nil && o.backendProcess.Process != nil {
+		o.log("🔄 Stopping existing backend process...", "\x1b[33m")
+		o.stopBackendProcessUnsafe()
+	}
+
+	o.log("🚀 Starting backend server...", "\x1b[34m")
+
+	// Create new process
+	cmd := exec.Command("go", "run", "./cmd/server")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", o.backendPort))
+
+	// Use PTY for colored output
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to start backend with PTY: %w", err)
+	}
+
+	o.backendProcess = cmd
+	o.log(fmt.Sprintf("✅ Backend started (PID: %d)", cmd.Process.Pid), "\x1b[34m")
+
+	// Handle PTY output
+	go func() {
+		defer ptmx.Close()
+		scanner := bufio.NewScanner(ptmx)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.TrimSpace(line) != "" {
+				o.formatLog("Backend", line, "\x1b[34m")
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (o *DevOrchestrator) stopBackendProcessUnsafe() {
+	if o.backendProcess == nil || o.backendProcess.Process == nil {
+		return
+	}
+
+	pid := o.backendProcess.Process.Pid
+	o.log(fmt.Sprintf("🛑 Stopping backend (PID: %d)...", pid), "\x1b[34m")
+
+	// Try graceful shutdown first
+	o.backendProcess.Process.Signal(syscall.SIGTERM)
+
+	// Wait up to 3 seconds for graceful shutdown
+	done := make(chan error, 1)
+	go func() {
+		done <- o.backendProcess.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			o.log("⚠️  Backend exited with error", "\x1b[33m")
+		} else {
+			o.log("✅ Backend stopped gracefully", "\x1b[32m")
+		}
+	case <-time.After(3 * time.Second):
+		o.log("💀 Force killing backend (timeout)...", "\x1b[31m")
+		o.backendProcess.Process.Kill()
+		syscall.Kill(pid, syscall.SIGKILL)
+	}
+
+	o.backendProcess = nil
+}
+
+func (o *DevOrchestrator) restartBackend() error {
+	o.log("🔄 Restarting backend...", "\x1b[36m")
+	return o.startBackendProcess()
 }

@@ -23,7 +23,7 @@ func GenerateProject(projectPath, projectName, router string) error {
 		ProjectName: projectName,
 		ModuleName:  projectName,
 		GoVersion:   "1.24.2",
-		BackendPort: "3002",
+		BackendPort: "3000",
 		Router:      router,
 	}
 

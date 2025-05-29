@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	apiinternal "{{.ModuleName}}/internal/api"
 	"{{.ModuleName}}/internal/db"
 
@@ -36,7 +38,7 @@ import (
 
 // Options for the CLI - allows configuration via flags or environment variables
 type Options struct {
-	Port int `help:"Port to listen on" short:"p" default:"{{.BackendPort}}"`
+	Port int `help:"Port to listen on" short:"p" default:"3000"`
 	Host string `help:"Host to bind to" default:"127.0.0.1"`
 	Dev  bool   `help:"Development mode (disables static file serving)" default:"false"`
 }
@@ -51,8 +53,17 @@ type HealthOutput struct {
 }
 
 func main() {
+	// Check for PORT environment variable (used by Air/development)
+	envPort := os.Getenv("PORT")
+	
 	// Create a CLI app with port and host options
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
+		// Use environment port if provided
+		if envPort != "" {
+			if p, err := strconv.Atoi(envPort); err == nil {
+				options.Port = p
+			}
+		}
 		{{if eq .Router "Chi (Recommended)"}}
 		// Create a new Chi router
 		router := chi.NewMux()
@@ -169,6 +180,10 @@ func main() {
 			{URL: fmt.Sprintf("http://%s:%d", options.Host, options.Port)},
 		}
 		
+		// Configure documentation and OpenAPI paths to be under /api/
+		config.DocsPath = "/api/docs"
+		config.OpenAPIPath = "/api/openapi"
+		
 		{{if eq .Router "Chi (Recommended)"}}
 		humaAPI := humachi.New(router, config)
 		{{else if eq .Router "Fiber"}}
@@ -257,8 +272,8 @@ func main() {
 		hooks.OnStart(func() {
 			addr := fmt.Sprintf("%s:%d", options.Host, options.Port)
 			fmt.Printf("🚀 {{.ProjectName}} server starting on http://%s\n", addr)
-			fmt.Printf("📚 API documentation available at http://%s/docs\n", addr)
-			fmt.Printf("📋 OpenAPI spec available at http://%s/openapi.json\n", addr)
+			fmt.Printf("📚 API documentation available at http://%s/api/docs\n", addr)
+			fmt.Printf("📋 OpenAPI spec available at http://%s/api/openapi.json\n", addr)
 			
 			{{if eq .Router "Fiber"}}
 			if err := app.Listen(addr); err != nil {

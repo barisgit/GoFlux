@@ -28,10 +28,11 @@ func getEmbeddedStaticHandler() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract the path from the request
 		path := r.URL.Path
 		
-		// Skip API routes
-		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/docs") || strings.HasPrefix(path, "/openapi") {
+		// Don't serve static files for API endpoints (includes docs and OpenAPI)
+		if strings.HasPrefix(path, "/api/") {
 			http.NotFound(w, r)
 			return
 		}

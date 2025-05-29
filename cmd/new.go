@@ -16,6 +16,7 @@ import (
 
 type ProjectConfig struct {
 	Name     string         `yaml:"name"`
+	Port     int            `yaml:"port"`
 	Frontend FrontendConfig `yaml:"frontend"`
 	Backend  BackendConfig  `yaml:"backend"`
 	Build    BuildConfig    `yaml:"build"`
@@ -40,7 +41,6 @@ type StaticGenConfig struct {
 }
 
 type BackendConfig struct {
-	Port   string `yaml:"port"`
 	Router string `yaml:"router"`
 }
 
@@ -197,9 +197,9 @@ func generateConfig(name, frontend, backend string) ProjectConfig {
 
 	return ProjectConfig{
 		Name:     name,
+		Port:     3000,
 		Frontend: frontendConfig,
 		Backend: BackendConfig{
-			Port:   "3002",
 			Router: backend,
 		},
 		Build: BuildConfig{

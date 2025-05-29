@@ -536,5 +536,5 @@ func (b *BuildOrchestrator) logBuildSuccess() {
 
 	fmt.Println()
 	b.log(fmt.Sprintf("🚀 Run with: ./%s", binaryPath), "\x1b[33m")
-	b.log(fmt.Sprintf("🌐 Then visit: http://localhost:%s", b.config.Backend.Port), "\x1b[33m")
+	b.log(fmt.Sprintf("🌐 Then visit: http://localhost:%d", b.config.Port), "\x1b[33m")
 }

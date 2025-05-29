@@ -123,14 +123,28 @@ func GenerateAPIClient(routes []types.APIRoute, typeDefs []types.TypeDefinition)
 		}
 	}
 
-	// API Response interface
-	content.WriteString("export interface ApiResponse<T> {\n")
-	content.WriteString("  data?: T\n")
-	content.WriteString("  error?: string\n")
+	// Types for Huma's RFC 9457 Problem Details error format
+	content.WriteString("export interface HumaErrorDetail {\n")
+	content.WriteString("  message: string\n")
+	content.WriteString("  location: string\n")
+	content.WriteString("  value: any\n")
 	content.WriteString("}\n\n")
 
+	content.WriteString("export interface HumaError {\n")
+	content.WriteString("  $schema?: string\n")
+	content.WriteString("  title: string\n")
+	content.WriteString("  status: number\n")
+	content.WriteString("  detail: string\n")
+	content.WriteString("  errors?: HumaErrorDetail[]\n")
+	content.WriteString("}\n\n")
+
+	// Result type for API responses - union of success or error
+	content.WriteString("export type ApiResult<T> = \n")
+	content.WriteString("  | { success: true; data: T }\n")
+	content.WriteString("  | { success: false; error: HumaError; data: T }\n\n")
+
 	// Base request function
-	content.WriteString("async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResponse<T>> {\n")
+	content.WriteString("async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResult<T>> {\n")
 	content.WriteString("  try {\n")
 	content.WriteString("    const response = await fetch(`/api${path}`, {\n")
 	content.WriteString("      headers: {\n")
@@ -141,13 +155,37 @@ func GenerateAPIClient(routes []types.APIRoute, typeDefs []types.TypeDefinition)
 	content.WriteString("    })\n\n")
 
 	content.WriteString("    if (!response.ok) {\n")
-	content.WriteString("      return { error: `HTTP ${response.status}: ${response.statusText}` }\n")
+	content.WriteString("      try {\n")
+	content.WriteString("        // Try to parse Huma error format\n")
+	content.WriteString("        const errorData = await response.json()\n")
+	content.WriteString("        return { success: false, error: errorData, data: {} as T }\n")
+	content.WriteString("      } catch {\n")
+	content.WriteString("        // Fallback to simple error if JSON parsing fails\n")
+	content.WriteString("        const errorText = await response.text()\n")
+	content.WriteString("        return { \n")
+	content.WriteString("          success: false, \n")
+	content.WriteString("          error: {\n")
+	content.WriteString("            title: response.statusText,\n")
+	content.WriteString("            status: response.status,\n")
+	content.WriteString("            detail: errorText || response.statusText\n")
+	content.WriteString("          },\n")
+	content.WriteString("          data: {} as T\n")
+	content.WriteString("        }\n")
+	content.WriteString("      }\n")
 	content.WriteString("    }\n\n")
 
 	content.WriteString("    const data = await response.json()\n")
-	content.WriteString("    return { data }\n")
+	content.WriteString("    return { success: true, data }\n")
 	content.WriteString("  } catch (error) {\n")
-	content.WriteString("    return { error: error instanceof Error ? error.message : 'Unknown error' }\n")
+	content.WriteString("    return { \n")
+	content.WriteString("      success: false, \n")
+	content.WriteString("      error: {\n")
+	content.WriteString("        title: 'Network Error',\n")
+	content.WriteString("        status: 0,\n")
+	content.WriteString("        detail: error instanceof Error ? error.message : 'Unknown error'\n")
+	content.WriteString("      },\n")
+	content.WriteString("      data: {} as T\n")
+	content.WriteString("    }\n")
 	content.WriteString("  }\n")
 	content.WriteString("}\n\n")
 
@@ -215,10 +253,10 @@ func GenerateStaticHandler(enableSPARouting bool) error {
 	content.WriteString("// StaticHandler returns a smart HTTP handler for serving static files\n")
 	content.WriteString("func StaticHandler() http.Handler {\n")
 	content.WriteString("\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n")
-	content.WriteString("\t\tpath := r.URL.Path\n\n")
-
-	content.WriteString("\t\t// Skip API routes\n")
-	content.WriteString("\t\tif strings.HasPrefix(path, \"/api/\") || strings.HasPrefix(path, \"/docs\") || strings.HasPrefix(path, \"/openapi\") {\n")
+	content.WriteString("\t\tpath := r.URL.Path\n")
+	content.WriteString("\t\t\n")
+	content.WriteString("\t\t// Don't serve static files for API endpoints (includes docs and OpenAPI)\n")
+	content.WriteString("\t\tif strings.HasPrefix(path, \"/api/\") {\n")
 	content.WriteString("\t\t\thttp.NotFound(w, r)\n")
 	content.WriteString("\t\t\treturn\n")
 	content.WriteString("\t\t}\n\n")
@@ -449,7 +487,7 @@ func generateMethodImplementation(content *strings.Builder, method types.APIMeth
 	paramStr := strings.Join(params, ", ")
 
 	// Generate async function
-	content.WriteString(fmt.Sprintf("async (%s): Promise<ApiResponse<%s>> => {\n", paramStr, responseType))
+	content.WriteString(fmt.Sprintf("async (%s): Promise<ApiResult<%s>> => {\n", paramStr, responseType))
 
 	// Build request path with parameter substitution
 	requestPath := routePath
