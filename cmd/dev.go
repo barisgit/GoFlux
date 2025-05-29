@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"goflux/internal/typegen/analyzer"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -443,6 +445,79 @@ func (o *DevOrchestrator) startProxy() {
 	}
 }
 
+func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
+	o.log("📋 Fetching OpenAPI specification...", "\x1b[36m")
+
+	// Create build directory if it doesn't exist
+	buildDir := "build"
+	if err := os.MkdirAll(buildDir, 0755); err != nil {
+		return fmt.Errorf("failed to create build directory: %w", err)
+	}
+
+	// Fetch OpenAPI spec from running server
+	openAPIURL := fmt.Sprintf("http://localhost:%s/openapi.json", o.config.Backend.Port)
+
+	// Wait a bit more to ensure the server is fully ready
+	time.Sleep(1 * time.Second)
+
+	resp, err := http.Get(openAPIURL)
+	if err != nil {
+		return fmt.Errorf("failed to fetch OpenAPI spec from %s: %w", openAPIURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status %d when fetching OpenAPI spec", resp.StatusCode)
+	}
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read OpenAPI response: %w", err)
+	}
+
+	// Validate it's valid JSON
+	var openAPISpec map[string]interface{}
+	if err := json.Unmarshal(body, &openAPISpec); err != nil {
+		return fmt.Errorf("invalid OpenAPI JSON received: %w", err)
+	}
+
+	// Save to build/openapi.json
+	openAPIPath := filepath.Join(buildDir, "openapi.json")
+	if err := os.WriteFile(openAPIPath, body, 0644); err != nil {
+		return fmt.Errorf("failed to save OpenAPI spec to %s: %w", openAPIPath, err)
+	}
+
+	o.log(fmt.Sprintf("✅ OpenAPI spec saved to %s", openAPIPath), "\x1b[32m")
+
+	// Log some info about what we found
+	if info, ok := openAPISpec["info"].(map[string]interface{}); ok {
+		if title, ok := info["title"].(string); ok {
+			o.log(fmt.Sprintf("📖 API Title: %s", title), "\x1b[36m")
+		}
+		if version, ok := info["version"].(string); ok {
+			o.log(fmt.Sprintf("🏷️  API Version: %s", version), "\x1b[36m")
+		}
+	}
+
+	if paths, ok := openAPISpec["paths"].(map[string]interface{}); ok {
+		routeCount := 0
+		for path := range paths {
+			if pathItem, ok := paths[path].(map[string]interface{}); ok {
+				// Count HTTP methods in this path
+				for method := range pathItem {
+					if method == "get" || method == "post" || method == "put" || method == "delete" || method == "patch" {
+						routeCount++
+					}
+				}
+			}
+		}
+		o.log(fmt.Sprintf("🛣️  Found %d API routes", routeCount), "\x1b[36m")
+	}
+
+	return nil
+}
+
 func (o *DevOrchestrator) Start() error {
 	o.setupGracefulShutdown()
 
@@ -473,11 +548,6 @@ func (o *DevOrchestrator) Start() error {
 	goModCmd.Stderr = os.Stderr
 	if err := goModCmd.Run(); err != nil {
 		o.log("⚠️  Warning: Could not install Go dependencies", "\x1b[33m")
-	}
-
-	// Generate types
-	if err := o.generateTypes(); err != nil {
-		o.log("⚠️  Warning: Could not generate types", "\x1b[33m")
 	}
 
 	// Define processes
@@ -519,6 +589,23 @@ func (o *DevOrchestrator) Start() error {
 	o.log("⏳ Waiting for backend server...", "\x1b[33m")
 	if !o.waitForPort(o.config.Backend.Port, 15*time.Second) {
 		return fmt.Errorf("backend server failed to start on port %s", o.config.Backend.Port)
+	}
+
+	// Fetch and save OpenAPI spec from running server
+	if err := o.fetchAndSaveOpenAPISpec(); err != nil {
+		o.log("⚠️  Warning: Could not fetch OpenAPI spec", "\x1b[33m")
+		if o.debug {
+			o.log(fmt.Sprintf("OpenAPI fetch error: %v", err), "\x1b[31m")
+		}
+	} else {
+		// Now generate types with fresh OpenAPI spec
+		o.log("🔧 Generating API types from OpenAPI spec...", "\x1b[36m")
+		if err := o.generateTypes(); err != nil {
+			o.log("⚠️  Warning: Could not generate types", "\x1b[33m")
+			if o.debug {
+				o.log(fmt.Sprintf("Type generation error: %v", err), "\x1b[31m")
+			}
+		}
 	}
 
 	// Start proxy server

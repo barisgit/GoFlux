@@ -1,405 +1,302 @@
 package analyzer
 
 import (
+	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/token"
-	gotypes "go/types"
-	"regexp"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"goflux/internal/typegen/types"
-
-	"golang.org/x/tools/go/packages"
 )
 
-var (
-	mapRegex          *regexp.Regexp
-	keyPackageIndex   int
-	keyTypeIndex      int
-	valueArrayIndex   int
-	valuePackageIndex int
-	valueTypeIndex    int
-)
-
-func init() {
-	// Regex to parse complex Go types like map[string][]User, *pkg.Type, etc.
-	mapRegex = regexp.MustCompile(`(?:map\[(?:(?P<keyPackage>\w+)\.)?(?P<keyType>\w+)])?(?P<valueArray>\[])?(?:\*?(?P<valuePackage>\w+)\.)?(?P<valueType>.+)`)
-	keyPackageIndex = mapRegex.SubexpIndex("keyPackage")
-	keyTypeIndex = mapRegex.SubexpIndex("keyType")
-	valueArrayIndex = mapRegex.SubexpIndex("valueArray")
-	valuePackageIndex = mapRegex.SubexpIndex("valuePackage")
-	valueTypeIndex = mapRegex.SubexpIndex("valueType")
+// OpenAPISpec represents the OpenAPI 3.x specification structure
+type OpenAPISpec struct {
+	OpenAPI    string                 `json:"openapi"`
+	Info       map[string]interface{} `json:"info"`
+	Paths      map[string]PathItem    `json:"paths"`
+	Components *Components            `json:"components,omitempty"`
 }
 
-// AnalyzeProject performs comprehensive analysis of a Go project
+type Components struct {
+	Schemas map[string]Schema `json:"schemas,omitempty"`
+}
+
+type Schema struct {
+	Type                 interface{}       `json:"type,omitempty"` // Can be string or array
+	Properties           map[string]Schema `json:"properties,omitempty"`
+	Items                *Schema           `json:"items,omitempty"`
+	Required             []string          `json:"required,omitempty"`
+	Description          string            `json:"description,omitempty"`
+	Example              interface{}       `json:"example,omitempty"`
+	Enum                 []interface{}     `json:"enum,omitempty"`
+	AdditionalProperties interface{}       `json:"additionalProperties,omitempty"`
+	Ref                  string            `json:"$ref,omitempty"`
+	Format               string            `json:"format,omitempty"`
+	AllOf                []Schema          `json:"allOf,omitempty"`
+	OneOf                []Schema          `json:"oneOf,omitempty"`
+	AnyOf                []Schema          `json:"anyOf,omitempty"`
+}
+
+type PathItem struct {
+	Get    *Operation `json:"get,omitempty"`
+	Post   *Operation `json:"post,omitempty"`
+	Put    *Operation `json:"put,omitempty"`
+	Delete *Operation `json:"delete,omitempty"`
+	Patch  *Operation `json:"patch,omitempty"`
+}
+
+type Operation struct {
+	OperationID string                    `json:"operationId,omitempty"`
+	Summary     string                    `json:"summary,omitempty"`
+	Description string                    `json:"description,omitempty"`
+	Tags        []string                  `json:"tags,omitempty"`
+	Parameters  []Parameter               `json:"parameters,omitempty"`
+	RequestBody *RequestBody              `json:"requestBody,omitempty"`
+	Responses   map[string]ResponseObject `json:"responses,omitempty"`
+}
+
+type Parameter struct {
+	Name        string  `json:"name"`
+	In          string  `json:"in"`
+	Required    bool    `json:"required"`
+	Description string  `json:"description,omitempty"`
+	Schema      *Schema `json:"schema,omitempty"`
+}
+
+type RequestBody struct {
+	Description string                     `json:"description,omitempty"`
+	Required    bool                       `json:"required"`
+	Content     map[string]MediaTypeObject `json:"content"`
+}
+
+type ResponseObject struct {
+	Description string                     `json:"description"`
+	Content     map[string]MediaTypeObject `json:"content,omitempty"`
+}
+
+type MediaTypeObject struct {
+	Schema *Schema `json:"schema,omitempty"`
+}
+
+// AnalyzeProject performs OpenAPI-based analysis of a project
 func AnalyzeProject(projectPath string, debug bool) (*types.APIAnalysis, error) {
-	start := time.Now()
-
-	// Load all packages with full type information
-	cfg := &packages.Config{
-		Mode: packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedName,
-		Dir:  projectPath,
+	if debug {
+		fmt.Printf("Analyzing project at: %s\n", projectPath)
 	}
 
-	pkgs, err := packages.Load(cfg, "./...")
+	// Look for OpenAPI spec in the project
+	spec, err := loadOpenAPISpec(projectPath, debug)
 	if err != nil {
-		return nil, fmt.Errorf("loading packages: %w", err)
+		return nil, fmt.Errorf("failed to load OpenAPI spec: %w", err)
 	}
 
-	// Perform deep analysis of API patterns
-	analysis := analyzeAPIPatterns(pkgs)
-
-	elapsed := time.Since(start)
+	// Parse the OpenAPI spec to extract routes and types
+	analysis := parseOpenAPISpec(spec, debug)
 
 	if debug {
-		fmt.Printf("Routes discovered:\n")
-		for _, route := range analysis.Routes {
-			fmt.Printf("   %s %s -> %s (req: %s, res: %s)\n",
-				route.Method, route.Path, route.Handler, route.RequestType, route.ResponseType)
-		}
-
-		fmt.Printf("Types discovered:\n")
-		for _, t := range analysis.TypeDefs {
-			fmt.Printf("   %s (%d fields)\n", t.Name, len(t.Fields))
-		}
-	} else {
-		fmt.Printf("GoFlux Type Generator: Discovered %d routes and %d types in %v\n",
-			len(analysis.Routes), len(analysis.TypeDefs), elapsed)
+		fmt.Printf("Extracted %d routes and %d types from OpenAPI spec\n",
+			len(analysis.Routes), len(analysis.TypeDefs))
 	}
 
 	return analysis, nil
 }
 
-func analyzeAPIPatterns(pkgs []*packages.Package) *types.APIAnalysis {
+// loadOpenAPISpec loads the OpenAPI specification from available sources
+func loadOpenAPISpec(projectPath string, debug bool) (*OpenAPISpec, error) {
+	// Try to find OpenAPI spec file
+	possiblePaths := []string{
+		filepath.Join(projectPath, "build", "openapi.json"),
+		filepath.Join(projectPath, "openapi.json"),
+		filepath.Join(projectPath, "docs", "openapi.json"),
+		filepath.Join(projectPath, "api", "openapi.json"),
+	}
+
+	for _, path := range possiblePaths {
+		if debug {
+			fmt.Printf("Checking for OpenAPI spec at: %s\n", path)
+		}
+
+		if _, err := os.Stat(path); err == nil {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				if debug {
+					fmt.Printf("Failed to read %s: %v\n", path, err)
+				}
+				continue
+			}
+
+			var spec OpenAPISpec
+			err = json.Unmarshal(data, &spec)
+			if err != nil {
+				if debug {
+					fmt.Printf("Failed to parse %s: %v\n", path, err)
+				}
+				continue
+			}
+
+			if debug {
+				fmt.Printf("Successfully loaded OpenAPI spec from: %s\n", path)
+			}
+			return &spec, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no OpenAPI specification found in paths: %v", possiblePaths)
+}
+
+// parseOpenAPISpec converts OpenAPI spec to our internal format
+func parseOpenAPISpec(spec *OpenAPISpec, debug bool) *types.APIAnalysis {
 	analysis := &types.APIAnalysis{
 		Routes:           []types.APIRoute{},
-		UsedTypes:        make(map[string]*gotypes.Named),
-		HandlerFuncs:     make(map[string]*ast.FuncDecl),
+		TypeDefs:         []types.TypeDefinition{},
+		UsedTypes:        make(map[string]interface{}),
+		HandlerFuncs:     make(map[string]interface{}),
 		ImportNamespaces: make(map[string]bool),
 		EnumTypes:        make(map[string]types.TypeDefinition),
 	}
 
-	// Track router groups and their paths
-	routerGroups := make(map[string]string)
-	// Track function calls with router parameters
-	functionRouterContext := make(map[string]string)
+	// Extract routes from paths
+	for path, pathItem := range spec.Paths {
+		operations := map[string]*Operation{
+			"GET":    pathItem.Get,
+			"POST":   pathItem.Post,
+			"PUT":    pathItem.Put,
+			"DELETE": pathItem.Delete,
+			"PATCH":  pathItem.Patch,
+		}
 
-	// Step 1: Find all function declarations and route registrations
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Syntax {
-			// First pass: find router group assignments and function calls
-			ast.Inspect(file, func(n ast.Node) bool {
-				switch node := n.(type) {
-				case *ast.FuncDecl:
-					if node.Name != nil {
-						analysis.HandlerFuncs[node.Name.Name] = node
-					}
-				case *ast.AssignStmt:
-					// Look for router group assignments like: users := api.Group("/users")
-					if len(node.Lhs) == 1 && len(node.Rhs) == 1 {
-						if ident, ok := node.Lhs[0].(*ast.Ident); ok {
-							if call, ok := node.Rhs[0].(*ast.CallExpr); ok {
-								if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
-									if len(call.Args) > 0 {
-										if pathLit, ok := call.Args[0].(*ast.BasicLit); ok && pathLit.Kind == token.STRING {
-											groupPath := strings.Trim(pathLit.Value, `"`)
-											routerGroups[ident.Name] = groupPath
-										}
-									}
-								}
-							}
-						}
-					}
-				case *ast.CallExpr:
-					// Look for function calls like: setupUserRoutes(users, database)
-					if ident, ok := node.Fun.(*ast.Ident); ok {
-						funcName := ident.Name
-						if strings.HasPrefix(funcName, "setup") && strings.HasSuffix(funcName, "Routes") {
-							if len(node.Args) >= 1 {
-								if routerArg, ok := node.Args[0].(*ast.Ident); ok {
-									if groupPath, exists := routerGroups[routerArg.Name]; exists {
-										functionRouterContext[funcName] = groupPath
-									}
-								}
-							}
-						}
-					}
-				}
-				return true
-			})
-
-			// Second pass: find route registrations with function context
-			for _, decl := range file.Decls {
-				if funcDecl, ok := decl.(*ast.FuncDecl); ok {
-					funcName := ""
-					if funcDecl.Name != nil {
-						funcName = funcDecl.Name.Name
-					}
-
-					// Check if this function has a known router context
-					var currentGroupPath string
-					if groupPath, exists := functionRouterContext[funcName]; exists {
-						currentGroupPath = groupPath
-					}
-
-					// Look for route calls within this function
-					ast.Inspect(funcDecl, func(n ast.Node) bool {
-						if call, ok := n.(*ast.CallExpr); ok {
-							if route := extractRouteFromCallWithContext(call, pkg.TypesInfo, routerGroups, currentGroupPath); route != nil {
-								analysis.Routes = append(analysis.Routes, *route)
-							}
-						}
-						return true
-					})
-				}
+		for method, operation := range operations {
+			if operation == nil {
+				continue
 			}
+
+			route := types.APIRoute{
+				Method:      method,
+				Path:        path,
+				Handler:     operation.OperationID,
+				Description: operation.Summary,
+			}
+
+			// Extract request type from requestBody
+			if operation.RequestBody != nil {
+				route.RequestType = extractTypeFromRequestBody(operation.RequestBody)
+			}
+
+			// Extract response type from responses
+			route.ResponseType = extractTypeFromResponses(operation.Responses)
+
+			analysis.Routes = append(analysis.Routes, route)
 		}
 	}
 
-	// Step 2: Analyze each route's handler function to discover used types
-	for i, route := range analysis.Routes {
-		handlerName := extractHandlerName(route.Handler)
-		if handlerFunc, exists := analysis.HandlerFuncs[handlerName]; exists {
-			analyzeHandlerFunction(handlerFunc, &analysis.Routes[i], analysis.UsedTypes, pkgs)
-		}
+	// Extract type definitions from components/schemas
+	if spec.Components != nil && spec.Components.Schemas != nil {
+		analysis.TypeDefs = extractTypeDefinitions(spec.Components.Schemas, debug)
 	}
-
-	// Step 3: Generate type definitions for all discovered types
-	analysis.TypeDefs = generateTypeDefinitions(analysis.UsedTypes, pkgs)
 
 	return analysis
 }
 
-func extractRouteFromCallWithContext(call *ast.CallExpr, info *gotypes.Info, routerGroups map[string]string, functionGroupPath string) *types.APIRoute {
-	// Look for: router.Method("/path", handlerFunc)
-	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		method := sel.Sel.Name
-
-		if !isHTTPMethod(method) {
-			return nil
-		}
-
-		if len(call.Args) < 2 {
-			return nil
-		}
-
-		// Extract path
-		pathLit, ok := call.Args[0].(*ast.BasicLit)
-		if !ok || pathLit.Kind != token.STRING {
-			return nil
-		}
-
-		path := strings.Trim(pathLit.Value, `"`)
-
-		// Skip Swagger documentation routes
-		if strings.Contains(path, "/docs") || strings.Contains(path, "swagger") {
-			return nil
-		}
-
-		// Determine the router being used and get its group path
-		var groupPath string
-		if x, ok := sel.X.(*ast.Ident); ok {
-			if prefix, exists := routerGroups[x.Name]; exists {
-				// Direct router group usage
-				groupPath = prefix
-			} else if x.Name == "router" && functionGroupPath != "" {
-				// Router parameter in function with known context
-				groupPath = functionGroupPath
-			}
-		}
-
-		// Combine group path with route path
-		fullPath := groupPath + path
-		if !strings.HasPrefix(fullPath, "/") {
-			fullPath = "/" + fullPath
-		}
-
-		// Extract handler function name
-		var handler string
-		switch h := call.Args[1].(type) {
-		case *ast.SelectorExpr:
-			if x, ok := h.X.(*ast.Ident); ok {
-				handler = x.Name + "." + h.Sel.Name
-			}
-		case *ast.Ident:
-			handler = h.Name
-		default:
-			return nil
-		}
-
-		return &types.APIRoute{
-			Method:      strings.ToUpper(method),
-			Path:        "/api" + fullPath,
-			Handler:     handler,
-			Description: generateDescription(method, fullPath),
+// extractTypeFromRequestBody extracts the type name from request body schema
+func extractTypeFromRequestBody(requestBody *RequestBody) string {
+	for _, mediaType := range requestBody.Content {
+		if mediaType.Schema != nil {
+			return extractTypeName(mediaType.Schema)
 		}
 	}
-
-	return nil
+	return ""
 }
 
-func analyzeHandlerFunction(fn *ast.FuncDecl, route *types.APIRoute, usedTypes map[string]*gotypes.Named, pkgs []*packages.Package) {
-	// Find the package containing this function
-	var pkg *packages.Package
-	for _, p := range pkgs {
-		for _, file := range p.Syntax {
-			ast.Inspect(file, func(n ast.Node) bool {
-				if n == fn {
-					pkg = p
-					return false
-				}
-				return true
-			})
-			if pkg != nil {
-				break
-			}
-		}
-		if pkg != nil {
-			break
-		}
-	}
-
-	if pkg == nil {
-		return
-	}
-
-	// Initialize type discovery for this handler
-	td := types.NewTypeDiscovery()
-	analysis := &types.APIAnalysis{
-		UsedTypes:        usedTypes,
-		ImportNamespaces: make(map[string]bool),
-	}
-
-	// Analyze function body to find request and response types
-	if fn.Body != nil {
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			switch node := n.(type) {
-			// Look for c.BodyParser(&variable) calls to find request types
-			case *ast.CallExpr:
-				if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
-					if sel.Sel.Name == "BodyParser" && len(node.Args) > 0 {
-						// Extract the type from &variable
-						if unary, ok := node.Args[0].(*ast.UnaryExpr); ok && unary.Op == token.AND {
-							if ident, ok := unary.X.(*ast.Ident); ok {
-								if varType := pkg.TypesInfo.TypeOf(ident); varType != nil {
-									// Use enhanced type discovery
-									td.DiscoverTypesRecursively(varType, analysis, pkgs)
-
-									if named := extractNamedType(varType); named != nil {
-										typeName := named.Obj().Name()
-										if !isFiberType(typeName) {
-											// Set request type for different HTTP methods
-											if route.Method == "POST" {
-												route.RequestType = fmt.Sprintf("Omit<%s, 'id'>", typeName)
-											} else if route.Method == "PUT" || route.Method == "PATCH" {
-												route.RequestType = fmt.Sprintf("Partial<%s>", typeName)
-											} else {
-												route.RequestType = typeName
-											}
-										}
-									}
-								}
-							}
-						}
-					} else if sel.Sel.Name == "JSON" && len(node.Args) > 0 {
-						// Analyze c.JSON() calls for response types with enhanced discovery
-						if argType := pkg.TypesInfo.TypeOf(node.Args[0]); argType != nil {
-							td.DiscoverTypesRecursively(argType, analysis, pkgs)
-
-							// Handle slice returns first (like users, posts)
-							if slice, ok := argType.(*gotypes.Slice); ok {
-								if named := extractNamedType(slice.Elem()); named != nil {
-									typeName := named.Obj().Name()
-									if !isFiberType(typeName) {
-										route.ResponseType = typeName + "[]"
-									}
-								}
-							} else if named := extractNamedType(argType); named != nil {
-								// Handle direct struct returns
-								typeName := named.Obj().Name()
-								if !isFiberType(typeName) {
-									route.ResponseType = typeName
-								}
-							}
-						}
-					}
-				}
-			}
-			return true
-		})
-	}
-
-	// If no response type found, check if it's a single item GET by ID
-	if route.ResponseType == "" && route.Method == "GET" && strings.Contains(route.Path, "/:id") {
-		// Infer from route path (e.g., /users/:id -> User)
-		pathParts := strings.Split(route.Path, "/")
-		for _, part := range pathParts {
-			if !strings.Contains(part, ":") && part != "" && part != "api" {
-				resourceName := capitalize(singularize(part))
-				// Check if this type exists in usedTypes or find it
-				for typeName := range usedTypes {
-					if typeName == resourceName {
-						route.ResponseType = typeName
-						return
-					}
-				}
-				// If not found, try to find it in packages and discover its dependencies
-				for _, p := range pkgs {
-					if obj := p.Types.Scope().Lookup(resourceName); obj != nil {
-						if named, ok := obj.Type().(*gotypes.Named); ok {
-							td.DiscoverTypesRecursively(named, analysis, pkgs)
-							route.ResponseType = resourceName
-							return
-						}
-					}
+// extractTypeFromResponses extracts the type name from successful response schemas
+func extractTypeFromResponses(responses map[string]ResponseObject) string {
+	// Look for 200, 201, or other success responses
+	successCodes := []string{"200", "201", "202"}
+	for _, code := range successCodes {
+		if response, exists := responses[code]; exists {
+			for _, mediaType := range response.Content {
+				if mediaType.Schema != nil {
+					return extractTypeName(mediaType.Schema)
 				}
 			}
 		}
+	}
+	return ""
+}
+
+// extractTypeName extracts the type name from a schema
+func extractTypeName(schema *Schema) string {
+	if schema.Ref != "" {
+		// Extract from $ref like "#/components/schemas/User"
+		parts := strings.Split(schema.Ref, "/")
+		if len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+	}
+
+	// Handle type field which can be string or array in OpenAPI 3.1
+	typeStr := getTypeString(schema.Type)
+
+	if typeStr == "array" && schema.Items != nil {
+		itemType := extractTypeName(schema.Items)
+		if itemType != "" {
+			return itemType + "[]"
+		}
+	}
+
+	// For simple types, return the TypeScript equivalent
+	switch typeStr {
+	case "string":
+		return "string"
+	case "number", "integer":
+		return "number"
+	case "boolean":
+		return "boolean"
+	case "object":
+		return "any"
+	default:
+		return "any"
 	}
 }
 
-func generateTypeDefinitions(usedTypes map[string]*gotypes.Named, pkgs []*packages.Package) []types.TypeDefinition {
+// getTypeString safely extracts type as string (handles OpenAPI 3.1 array format)
+func getTypeString(typeField interface{}) string {
+	if typeField == nil {
+		return ""
+	}
+
+	switch v := typeField.(type) {
+	case string:
+		return v
+	case []interface{}:
+		// OpenAPI 3.1 allows type to be an array like ["string", "null"]
+		if len(v) > 0 {
+			if str, ok := v[0].(string); ok {
+				return str
+			}
+		}
+	}
+	return ""
+}
+
+// extractTypeDefinitions converts OpenAPI schemas to TypeScript type definitions
+func extractTypeDefinitions(schemas map[string]Schema, debug bool) []types.TypeDefinition {
 	var typeDefs []types.TypeDefinition
 
-	for typeName, namedType := range usedTypes {
-		if structType, ok := namedType.Underlying().(*gotypes.Struct); ok {
-			// Find the AST node for this type to get field tags
-			var astStruct *ast.StructType
-			var packageName string
+	for name, schema := range schemas {
+		// Skip internal OpenAPI types (those with $ in the name)
+		if strings.Contains(name, "$") {
+			continue
+		}
 
-			if namedType.Obj().Pkg() != nil {
-				packageName = getPackageName(namedType.Obj().Pkg().Path())
-			}
-
-			for _, pkg := range pkgs {
-				for _, file := range pkg.Syntax {
-					ast.Inspect(file, func(n ast.Node) bool {
-						if ts, ok := n.(*ast.TypeSpec); ok && ts.Name.Name == typeName {
-							if st, ok := ts.Type.(*ast.StructType); ok {
-								astStruct = st
-								return false
-							}
-						}
-						return true
-					})
-					if astStruct != nil {
-						break
-					}
-				}
-				if astStruct != nil {
-					break
-				}
-			}
-
-			typeDef := analyzeStructType(typeName, structType, astStruct, packageName)
+		typeDef := convertSchemaToTypeDef(name, schema, debug)
+		if typeDef.Name != "" {
 			typeDefs = append(typeDefs, typeDef)
 		}
 	}
 
-	// Sort type definitions for consistent output
+	// Sort for consistent output
 	sort.Slice(typeDefs, func(i, j int) bool {
 		return typeDefs[i].Name < typeDefs[j].Name
 	})
@@ -407,237 +304,96 @@ func generateTypeDefinitions(usedTypes map[string]*gotypes.Named, pkgs []*packag
 	return typeDefs
 }
 
-func analyzeStructType(name string, structType *gotypes.Struct, astStruct *ast.StructType, packageName string) types.TypeDefinition {
-	def := types.TypeDefinition{
-		Name:        name,
-		Fields:      []types.FieldInfo{},
-		PackageName: packageName,
-		IsEnum:      false,
+// convertSchemaToTypeDef converts an OpenAPI schema to a TypeScript type definition
+func convertSchemaToTypeDef(name string, schema Schema, debug bool) types.TypeDefinition {
+	if len(schema.Enum) > 0 {
+		// Handle enum types
+		enumValues := make([]string, len(schema.Enum))
+		for i, val := range schema.Enum {
+			enumValues[i] = fmt.Sprintf(`"%v"`, val)
+		}
+		return types.TypeDefinition{
+			Name:       name,
+			IsEnum:     true,
+			EnumValues: enumValues,
+		}
 	}
 
-	for i := 0; i < structType.NumFields(); i++ {
-		field := structType.Field(i)
+	typeStr := getTypeString(schema.Type)
+	if typeStr == "object" && schema.Properties != nil {
+		// Handle object types
+		var fields []types.FieldInfo
 
-		if !field.Exported() {
-			continue
-		}
-
-		var jsonTag string
-		if astStruct != nil && i < len(astStruct.Fields.List) {
-			if astStruct.Fields.List[i].Tag != nil {
-				tag := strings.Trim(astStruct.Fields.List[i].Tag.Value, "`")
-				jsonTag = extractJSONTag(tag)
+		for propName, propSchema := range schema.Properties {
+			// Skip $schema fields
+			if propName == "$schema" {
+				continue
 			}
+
+			fieldType := schemaToTypeScriptType(propSchema)
+			isRequired := contains(schema.Required, propName)
+
+			field := types.FieldInfo{
+				Name:        propName,
+				TypeName:    fieldType,
+				JSONTag:     propName,
+				Optional:    !isRequired,
+				IsArray:     getTypeString(propSchema.Type) == "array",
+				Description: propSchema.Description,
+			}
+			fields = append(fields, field)
 		}
 
-		if jsonTag == "-" {
-			continue
+		// Sort fields for consistent output
+		sort.Slice(fields, func(i, j int) bool {
+			return fields[i].Name < fields[j].Name
+		})
+
+		return types.TypeDefinition{
+			Name:   name,
+			Fields: fields,
 		}
-
-		// Use enhanced type conversion
-		fieldTypeName := goTypeToTypeScriptType(field.Type().String())
-
-		fieldInfo := types.FieldInfo{
-			Name:     field.Name(),
-			TypeName: fieldTypeName,
-			JSONTag:  jsonTag,
-			Optional: isPointerType(field.Type()),
-			IsArray:  isSliceType(field.Type()),
-		}
-
-		def.Fields = append(def.Fields, fieldInfo)
 	}
 
-	return def
+	return types.TypeDefinition{} // Empty definition for unsupported schemas
 }
 
-func extractJSONTag(tag string) string {
-	for _, part := range strings.Split(tag, " ") {
-		if strings.HasPrefix(part, "json:") {
-			jsonPart := strings.Trim(part[5:], "\"")
-			parts := strings.Split(jsonPart, ",")
-			if len(parts) > 0 && parts[0] != "" {
-				return parts[0]
-			}
-		}
-	}
-	return ""
-}
-
-func goTypeToTypeScriptType(input string) string {
-	// Enhanced type conversion logic from the original
-	// Handle array types with fully qualified names
-	if strings.HasPrefix(input, "[]") && strings.Contains(input, "/") {
-		elementType := strings.TrimPrefix(input, "[]")
-		parts := strings.Split(elementType, ".")
+// schemaToTypeScriptType converts an OpenAPI schema to a TypeScript type string
+func schemaToTypeScriptType(schema Schema) string {
+	if schema.Ref != "" {
+		parts := strings.Split(schema.Ref, "/")
 		if len(parts) > 0 {
-			typeName := parts[len(parts)-1]
-			if isCustomType(typeName) {
-				return "Array<" + typeName + ">"
-			}
+			return parts[len(parts)-1]
 		}
 	}
 
-	// Handle fully qualified type names
-	if strings.Contains(input, "/") && !strings.HasPrefix(input, "map[") && !strings.HasPrefix(input, "[]") {
-		parts := strings.Split(input, ".")
-		if len(parts) > 0 {
-			typeName := parts[len(parts)-1]
-			if isCustomType(typeName) {
-				return typeName
-			}
-		}
-	}
-
-	// Basic type mappings
-	switch {
-	case input == "interface{}" || input == "interface {}":
-		return "any"
-	case input == "string":
+	typeStr := getTypeString(schema.Type)
+	switch typeStr {
+	case "string":
 		return "string"
-	case input == "error":
-		return "Error"
-	case strings.HasPrefix(input, "int") ||
-		strings.HasPrefix(input, "uint") ||
-		strings.HasPrefix(input, "float"):
+	case "number", "integer":
 		return "number"
-	case input == "bool":
+	case "boolean":
 		return "boolean"
-	case strings.HasPrefix(input, "time.Time"):
-		return "string"
-	case strings.HasPrefix(input, "*"):
-		return goTypeToTypeScriptType(strings.TrimPrefix(input, "*"))
-	default:
-		if isCustomType(input) {
-			return input
+	case "array":
+		if schema.Items != nil {
+			itemType := schemaToTypeScriptType(*schema.Items)
+			return itemType + "[]"
 		}
+		return "any[]"
+	case "object":
+		return "any"
+	default:
 		return "any"
 	}
 }
 
-func isCustomType(typeName string) bool {
-	if len(typeName) == 0 {
-		return false
-	}
-
-	// Check if first character is uppercase (Go convention for exported types)
-	firstChar := rune(typeName[0])
-	if firstChar < 'A' || firstChar > 'Z' {
-		return false
-	}
-
-	// Exclude known non-custom types that might be capitalized
-	excludedTypes := []string{"Time", "Duration", "Context", "Error"}
-	for _, excluded := range excludedTypes {
-		if typeName == excluded {
-			return false
-		}
-	}
-
-	return true
-}
-
-func isPointerType(t gotypes.Type) bool {
-	_, isPtr := t.(*gotypes.Pointer)
-	return isPtr
-}
-
-func isSliceType(t gotypes.Type) bool {
-	_, isSlice := t.(*gotypes.Slice)
-	return isSlice
-}
-
-func extractHandlerName(handler string) string {
-	parts := strings.Split(handler, ".")
-	return parts[len(parts)-1]
-}
-
-func isHTTPMethod(method string) bool {
-	httpMethods := []string{"Get", "Post", "Put", "Delete", "Patch", "Options", "Head"}
-	for _, m := range httpMethods {
-		if method == m {
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
 			return true
 		}
 	}
 	return false
-}
-
-func generateDescription(method, path string) string {
-	action := "Execute"
-	if method == "GET" {
-		if strings.Contains(path, ":id") {
-			action = "Get"
-		} else {
-			action = "List"
-		}
-	} else if method == "POST" {
-		action = "Create"
-	} else if method == "PUT" || method == "PATCH" {
-		action = "Update"
-	} else if method == "DELETE" {
-		action = "Delete"
-	}
-
-	// Extract resource name from path, handling nested routes
-	pathParts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	var resourceParts []string
-
-	for _, part := range pathParts {
-		if !strings.Contains(part, ":") && part != "" {
-			resourceParts = append(resourceParts, part)
-		}
-	}
-
-	resource := strings.Join(resourceParts, " ")
-	if resource == "" {
-		resource = "resource"
-	}
-
-	return fmt.Sprintf("%s %s", action, resource)
-}
-
-// Helper functions
-func isFiberType(typeName string) bool {
-	fiberTypes := []string{"Ctx", "Map", "Config", "Error"}
-	for _, ft := range fiberTypes {
-		if typeName == ft {
-			return true
-		}
-	}
-	return false
-}
-
-func extractNamedType(t gotypes.Type) *gotypes.Named {
-	switch typ := t.(type) {
-	case *gotypes.Named:
-		return typ
-	case *gotypes.Pointer:
-		return extractNamedType(typ.Elem())
-	case *gotypes.Slice:
-		return extractNamedType(typ.Elem())
-	default:
-		return nil
-	}
-}
-
-func capitalize(s string) string {
-	if len(s) == 0 {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-func singularize(s string) string {
-	if strings.HasSuffix(s, "s") && len(s) > 1 {
-		return s[:len(s)-1]
-	}
-	return s
-}
-
-func getPackageName(packagePath string) string {
-	if packagePath == "" {
-		return ""
-	}
-	parts := strings.Split(packagePath, "/")
-	return parts[len(parts)-1]
 }

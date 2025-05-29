@@ -1,38 +1,114 @@
 package main
 
 import (
-	"log"
-	"{{.ModuleName}}/internal/api"
+	"context"
+	"fmt"
+	"net/http"
+	apiinternal "{{.ModuleName}}/internal/api"
 	"{{.ModuleName}}/internal/db"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/danielgtaylor/huma/v2/humacli"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	// Import CBOR support for binary content negotiation
+	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 )
 
+// Options for the CLI - allows configuration via flags or environment variables
+type Options struct {
+	Port int `help:"Port to listen on" short:"p" default:"{{.BackendPort}}"`
+	Host string `help:"Host to bind to" default:"127.0.0.1"`
+}
+
+// HealthOutput represents the health check response
+type HealthOutput struct {
+	Body struct {
+		Status  string `json:"status" example:"ok" doc:"Service status"`
+		Message string `json:"message" example:"{{.ProjectName}} server is running!" doc:"Status message"`
+		Version string `json:"version" example:"1.0.0" doc:"API version"`
+	}
+}
+
 func main() {
-	app := fiber.New()
+	// Create a CLI app with port and host options
+	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
+		// Create a new Chi router
+		router := chi.NewMux()
 
-	app.Use(cors.New())
-	app.Use(logger.New(logger.Config{
-		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path}\n",
-	}))
+		// Add middleware
+		router.Use(middleware.Logger)
+		router.Use(middleware.Recoverer)
+		router.Use(middleware.RequestID)
+		router.Use(middleware.RealIP)
 
-	// Health check endpoint
-	app.Get("/api/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"status": "ok",
-			"message": "{{.ProjectName}} server is running!",
+		// CORS middleware
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				
+				next.ServeHTTP(w, r)
+			})
 		})
+
+		// Create Huma API with OpenAPI configuration
+		config := huma.DefaultConfig("{{.ProjectName}} API", "1.0.0")
+		config.Info.Description = "A modern REST API built with GoFlux and Huma"
+		config.Servers = []*huma.Server{
+			{URL: fmt.Sprintf("http://%s:%d", options.Host, options.Port)},
+		}
+		
+		humaAPI := humachi.New(router, config)
+
+		// Register health check endpoint
+		huma.Register(humaAPI, huma.Operation{
+			OperationID: "health-check",
+			Method:      http.MethodGet,
+			Path:        "/api/health",
+			Summary:     "Health Check",
+			Description: "Check if the API is running and healthy",
+			Tags:        []string{"Health"},
+		}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
+			resp := &HealthOutput{}
+			resp.Body.Status = "ok"
+			resp.Body.Message = "{{.ProjectName}} server is running!"
+			resp.Body.Version = "1.0.0"
+			return resp, nil
 	})
 
 	// Initialize database (mock database for demo)
 	database := db.NewMockDB()
 
 	// Setup API routes
-	apiGroup := app.Group("/api")
-	api.SetupRoutes(apiGroup, database)
+		apiinternal.SetupRoutes(humaAPI, database)
 
-	log.Println("🚀 Server starting on http://localhost:{{.BackendPort}}")
-	log.Fatal(app.Listen(":{{.BackendPort}}"))
+		// Tell the CLI how to start your server
+		hooks.OnStart(func() {
+			addr := fmt.Sprintf("%s:%d", options.Host, options.Port)
+			fmt.Printf("🚀 {{.ProjectName}} server starting on http://%s\n", addr)
+			fmt.Printf("📚 API documentation available at http://%s/docs\n", addr)
+			fmt.Printf("📋 OpenAPI spec available at http://%s/openapi.json\n", addr)
+			
+			server := &http.Server{
+				Addr:    addr,
+				Handler: router,
+			}
+			
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				panic(fmt.Sprintf("Failed to start server: %v", err))
+			}
+		})
+	})
+
+	// Run the CLI. When passed no commands, it starts the server.
+	cli.Run()
 } 

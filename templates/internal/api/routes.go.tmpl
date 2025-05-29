@@ -1,207 +1,323 @@
 package api
 
 import (
+	"context"
+	"net/http"
 	"strconv"
 	"{{.ModuleName}}/internal/db"
 	"{{.ModuleName}}/internal/types"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-// SetupRoutes configures all API routes
-func SetupRoutes(api fiber.Router, database db.Database) {
+// SetupRoutes configures all API routes for Huma
+func SetupRoutes(api huma.API, database db.Database) {
 	// Users routes
-	users := api.Group("/users")
-	setupUserRoutes(users, database)
-
-	// Posts routes (example of nested resource)
-	posts := api.Group("/posts")
-	setupPostRoutes(posts, database)
-}
-
-// User routes
-func setupUserRoutes(router fiber.Router, db db.Database) {
-	router.Get("/", getUsers)
-	router.Get("/:id", getUser)
-	router.Post("/", createUser)
-	router.Put("/:id", updateUser)
-	router.Delete("/:id", deleteUser)
-}
-
-// Post routes
-func setupPostRoutes(router fiber.Router, db db.Database) {
-	router.Get("/", getPosts)
-	router.Get("/:id", getPost)
-	router.Post("/", createPost)
-	router.Put("/:id", updatePost)
-	router.Delete("/:id", deletePost)
+	setupUserRoutes(api, database)
 	
-	// Nested routes - posts by user
-	router.Get("/user/:userId", getPostsByUser)
+	// Posts routes
+	setupPostRoutes(api, database)
 }
 
-// User handlers
-func getUsers(c *fiber.Ctx) error {
-	// In a real app, this would query the database
-	users := []types.User{
-		{ID: 1, Name: "John Doe", Email: "john@example.com", Age: 30},
-		{ID: 2, Name: "Jane Smith", Email: "jane@example.com", Age: 25},
-	}
-	return c.JSON(users)
+// User route inputs and outputs
+
+type GetUsersOutput struct {
+	Body []types.User `json:"users" doc:"List of users"`
 }
 
-func getUser(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
-	}
-
-	// Mock user data
-	user := types.User{
-		ID:    id,
-		Name:  "John Doe",
-		Email: "john@example.com",
-		Age:   30,
-	}
-
-	return c.JSON(user)
+type GetUserInput struct {
+	ID int `path:"id" minimum:"1" doc:"User ID" example:"1"`
 }
 
-func createUser(c *fiber.Ctx) error {
-	var user types.User
-	if err := c.BodyParser(&user); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
-	}
-
-	// Validate required fields
-	if user.Name == "" || user.Email == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "Name and email are required"})
-	}
-
-	// In a real app, save to database
-	user.ID = 3 // Mock ID
-	
-	return c.Status(201).JSON(user)
+type GetUserOutput struct {
+	Body types.User `json:"user" doc:"User details"`
 }
 
-func updateUser(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
-	}
-
-	var updates types.User
-	if err := c.BodyParser(&updates); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
-	}
-
-	// In a real app, update in database
-	user := types.User{
-		ID:    id,
-		Name:  updates.Name,
-		Email: updates.Email,
-		Age:   updates.Age,
-	}
-
-	return c.JSON(user)
+type CreateUserInput struct {
+	Body types.CreateUserRequest `json:"user" doc:"User data to create"`
 }
 
-func deleteUser(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
-	}
+type CreateUserOutput struct {
+	Body types.User `json:"user" doc:"Created user"`
+}
 
-	// In a real app, delete from database
-	return c.JSON(fiber.Map{
-		"message": "User deleted successfully",
-		"id":      id,
+type UpdateUserInput struct {
+	ID   int                     `path:"id" minimum:"1" doc:"User ID" example:"1"`
+	Body types.UpdateUserRequest `json:"user" doc:"User data to update"`
+}
+
+type UpdateUserOutput struct {
+	Body types.User `json:"user" doc:"Updated user"`
+}
+
+type DeleteUserInput struct {
+	ID int `path:"id" minimum:"1" doc:"User ID" example:"1"`
+}
+
+type DeleteUserOutput struct {
+	Body struct {
+		Message string `json:"message" example:"User deleted successfully" doc:"Success message"`
+		ID      int    `json:"id" example:"1" doc:"Deleted user ID"`
+	}
+}
+
+// Post route inputs and outputs
+
+type GetPostsOutput struct {
+	Body []types.Post `json:"posts" doc:"List of posts"`
+}
+
+type GetPostInput struct {
+	ID int `path:"id" minimum:"1" doc:"Post ID" example:"1"`
+}
+
+type GetPostOutput struct {
+	Body types.Post `json:"post" doc:"Post details"`
+}
+
+type CreatePostInput struct {
+	Body types.CreatePostRequest `json:"post" doc:"Post data to create"`
+}
+
+type CreatePostOutput struct {
+	Body types.Post `json:"post" doc:"Created post"`
+}
+
+type UpdatePostInput struct {
+	ID   int                     `path:"id" minimum:"1" doc:"Post ID" example:"1"`
+	Body types.UpdatePostRequest `json:"post" doc:"Post data to update"`
+}
+
+type UpdatePostOutput struct {
+	Body types.Post `json:"post" doc:"Updated post"`
+}
+
+type DeletePostInput struct {
+	ID int `path:"id" minimum:"1" doc:"Post ID" example:"1"`
+}
+
+type DeletePostOutput struct {
+	Body struct {
+		Message string `json:"message" example:"Post deleted successfully" doc:"Success message"`
+		ID      int    `json:"id" example:"1" doc:"Deleted post ID"`
+	}
+}
+
+type GetPostsByUserInput struct {
+	UserID int `path:"userId" minimum:"1" doc:"User ID" example:"1"`
+}
+
+type GetPostsByUserOutput struct {
+	Body []types.Post `json:"posts" doc:"List of posts by user"`
+}
+
+// User route handlers
+func setupUserRoutes(api huma.API, database db.Database) {
+	// GET /api/users
+	huma.Register(api, huma.Operation{
+		OperationID: "get-users",
+		Method:      http.MethodGet,
+		Path:        "/api/users",
+		Summary:     "Get all users",
+		Description: "Retrieve a list of all users in the system",
+		Tags:        []string{"Users"},
+	}, func(ctx context.Context, input *struct{}) (*GetUsersOutput, error) {
+		// In a real app, this would query the database
+		users := []types.User{
+			{ID: 1, Name: "John Doe", Email: "john@example.com", Age: 30},
+			{ID: 2, Name: "Jane Smith", Email: "jane@example.com", Age: 25},
+		}
+		
+		return &GetUsersOutput{Body: users}, nil
+	})
+
+	// GET /api/users/{id}
+	huma.Register(api, huma.Operation{
+		OperationID: "get-user",
+		Method:      http.MethodGet,
+		Path:        "/api/users/{id}",
+		Summary:     "Get user by ID",
+		Description: "Retrieve a specific user by their ID",
+		Tags:        []string{"Users"},
+	}, func(ctx context.Context, input *GetUserInput) (*GetUserOutput, error) {
+		// Mock user data - in real app, query database
+		user := types.User{
+			ID:    input.ID,
+			Name:  "John Doe",
+			Email: "john@example.com",
+			Age:   30,
+		}
+
+		return &GetUserOutput{Body: user}, nil
+	})
+
+	// POST /api/users
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-user",
+		Method:        http.MethodPost,
+		Path:          "/api/users",
+		Summary:       "Create a new user",
+		Description:   "Create a new user in the system",
+		Tags:          []string{"Users"},
+		DefaultStatus: http.StatusCreated,
+	}, func(ctx context.Context, input *CreateUserInput) (*CreateUserOutput, error) {
+		// In a real app, save to database and return the created user with ID
+		user := types.User{
+			ID:    3, // Mock ID
+			Name:  input.Body.Name,
+			Email: input.Body.Email,
+			Age:   input.Body.Age,
+		}
+		
+		return &CreateUserOutput{Body: user}, nil
+	})
+
+	// PUT /api/users/{id}
+	huma.Register(api, huma.Operation{
+		OperationID: "update-user",
+		Method:      http.MethodPut,
+		Path:        "/api/users/{id}",
+		Summary:     "Update user",
+		Description: "Update an existing user's information",
+		Tags:        []string{"Users"},
+	}, func(ctx context.Context, input *UpdateUserInput) (*UpdateUserOutput, error) {
+		// In a real app, update in database
+		user := types.User{
+			ID:    input.ID,
+			Name:  input.Body.Name,
+			Email: input.Body.Email,
+			Age:   input.Body.Age,
+		}
+
+		return &UpdateUserOutput{Body: user}, nil
+	})
+
+	// DELETE /api/users/{id}
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-user",
+		Method:      http.MethodDelete,
+		Path:        "/api/users/{id}",
+		Summary:     "Delete user",
+		Description: "Delete a user from the system",
+		Tags:        []string{"Users"},
+	}, func(ctx context.Context, input *DeleteUserInput) (*DeleteUserOutput, error) {
+		// In a real app, delete from database
+		resp := &DeleteUserOutput{}
+		resp.Body.Message = "User deleted successfully"
+		resp.Body.ID = input.ID
+		
+		return resp, nil
 	})
 }
 
-// Post handlers
-func getPosts(c *fiber.Ctx) error {
-	posts := []types.Post{
-		{ID: 1, Title: "First Post", Content: "This is the content of the first post", UserID: 1},
-		{ID: 2, Title: "Second Post", Content: "This is the content of the second post", UserID: 2},
-	}
-	return c.JSON(posts)
-}
-
-func getPost(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid post ID"})
-	}
-
-	post := types.Post{
-		ID:      id,
-		Title:   "Sample Post",
-		Content: "This is a sample post content",
-		UserID:  1,
-	}
-
-	return c.JSON(post)
-}
-
-func createPost(c *fiber.Ctx) error {
-	var post types.Post
-	if err := c.BodyParser(&post); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
-	}
-
-	if post.Title == "" || post.Content == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "Title and content are required"})
-	}
-
-	post.ID = 3 // Mock ID
-	
-	return c.Status(201).JSON(post)
-}
-
-func updatePost(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid post ID"})
-	}
-
-	var updates types.Post
-	if err := c.BodyParser(&updates); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
-	}
-
-	post := types.Post{
-		ID:      id,
-		Title:   updates.Title,
-		Content: updates.Content,
-		UserID:  updates.UserID,
-	}
-
-	return c.JSON(post)
-}
-
-func deletePost(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid post ID"})
-	}
-
-	return c.JSON(fiber.Map{
-		"message": "Post deleted successfully",
-		"id":      id,
+// Post route handlers
+func setupPostRoutes(api huma.API, database db.Database) {
+	// GET /api/posts
+	huma.Register(api, huma.Operation{
+		OperationID: "get-posts",
+		Method:      http.MethodGet,
+		Path:        "/api/posts",
+		Summary:     "Get all posts",
+		Description: "Retrieve a list of all posts in the system",
+		Tags:        []string{"Posts"},
+	}, func(ctx context.Context, input *struct{}) (*GetPostsOutput, error) {
+		posts := []types.Post{
+			{ID: 1, Title: "First Post", Content: "This is the content of the first post", UserID: 1},
+			{ID: 2, Title: "Second Post", Content: "This is the content of the second post", UserID: 2},
+		}
+		
+		return &GetPostsOutput{Body: posts}, nil
 	})
-}
 
-func getPostsByUser(c *fiber.Ctx) error {
-	userID, err := strconv.Atoi(c.Params("userId"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
-	}
+	// GET /api/posts/{id}
+	huma.Register(api, huma.Operation{
+		OperationID: "get-post",
+		Method:      http.MethodGet,
+		Path:        "/api/posts/{id}",
+		Summary:     "Get post by ID",
+		Description: "Retrieve a specific post by its ID",
+		Tags:        []string{"Posts"},
+	}, func(ctx context.Context, input *GetPostInput) (*GetPostOutput, error) {
+		post := types.Post{
+			ID:      input.ID,
+			Title:   "Sample Post",
+			Content: "This is a sample post content",
+			UserID:  1,
+		}
 
-	posts := []types.Post{
-		{ID: 1, Title: "User's First Post", Content: "Content here", UserID: userID},
-		{ID: 2, Title: "User's Second Post", Content: "More content", UserID: userID},
-	}
+		return &GetPostOutput{Body: post}, nil
+	})
 
-	return c.JSON(posts)
+	// POST /api/posts
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-post",
+		Method:        http.MethodPost,
+		Path:          "/api/posts",
+		Summary:       "Create a new post",
+		Description:   "Create a new post in the system",
+		Tags:          []string{"Posts"},
+		DefaultStatus: http.StatusCreated,
+	}, func(ctx context.Context, input *CreatePostInput) (*CreatePostOutput, error) {
+		post := types.Post{
+			ID:      3, // Mock ID
+			Title:   input.Body.Title,
+			Content: input.Body.Content,
+			UserID:  input.Body.UserID,
+		}
+		
+		return &CreatePostOutput{Body: post}, nil
+	})
+
+	// PUT /api/posts/{id}
+	huma.Register(api, huma.Operation{
+		OperationID: "update-post",
+		Method:      http.MethodPut,
+		Path:        "/api/posts/{id}",
+		Summary:     "Update post",
+		Description: "Update an existing post's information",
+		Tags:        []string{"Posts"},
+	}, func(ctx context.Context, input *UpdatePostInput) (*UpdatePostOutput, error) {
+		post := types.Post{
+			ID:      input.ID,
+			Title:   input.Body.Title,
+			Content: input.Body.Content,
+			UserID:  input.Body.UserID,
+		}
+
+		return &UpdatePostOutput{Body: post}, nil
+	})
+
+	// DELETE /api/posts/{id}
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-post",
+		Method:      http.MethodDelete,
+		Path:        "/api/posts/{id}",
+		Summary:     "Delete post",
+		Description: "Delete a post from the system",
+		Tags:        []string{"Posts"},
+	}, func(ctx context.Context, input *DeletePostInput) (*DeletePostOutput, error) {
+		resp := &DeletePostOutput{}
+		resp.Body.Message = "Post deleted successfully"
+		resp.Body.ID = input.ID
+		
+		return resp, nil
+	})
+
+	// GET /api/posts/user/{userId}
+	huma.Register(api, huma.Operation{
+		OperationID: "get-posts-by-user",
+		Method:      http.MethodGet,
+		Path:        "/api/posts/user/{userId}",
+		Summary:     "Get posts by user",
+		Description: "Retrieve all posts created by a specific user",
+		Tags:        []string{"Posts"},
+	}, func(ctx context.Context, input *GetPostsByUserInput) (*GetPostsByUserOutput, error) {
+		// Mock posts for the user
+		posts := []types.Post{
+			{ID: 1, Title: "User's First Post", Content: "Content by user " + strconv.Itoa(input.UserID), UserID: input.UserID},
+			{ID: 2, Title: "User's Second Post", Content: "More content by user " + strconv.Itoa(input.UserID), UserID: input.UserID},
+		}
+
+		return &GetPostsByUserOutput{Body: posts}, nil
+	})
 } 

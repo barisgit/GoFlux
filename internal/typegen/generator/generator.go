@@ -199,11 +199,12 @@ func buildNestedAPIStructure(routes []types.APIRoute) types.NestedAPI {
 
 		// Filter out parameter parts and build resource hierarchy
 		var resourceParts []string
-		hasIDParam := strings.Contains(route.Path, ":")
+		hasIDParam := false
 
 		for _, part := range pathParts {
-			if strings.Contains(part, ":") {
-				// Don't add parameter parts to resourceParts, but hasIDParam is already set
+			if strings.Contains(part, ":") || strings.HasPrefix(part, "{") {
+				hasIDParam = true
+				// Don't add parameter parts to resourceParts
 			} else if part != "" {
 				resourceParts = append(resourceParts, part)
 			}
@@ -223,7 +224,7 @@ func buildNestedAPIStructure(routes []types.APIRoute) types.NestedAPI {
 			HasBodyData: route.RequestType != "",
 		}
 
-		// Build nested structure
+		// Build nested structure - but only use the resource parts, not parameters
 		current := nested
 		for i, part := range resourceParts {
 			if i == len(resourceParts)-1 {
@@ -338,9 +339,14 @@ func generateMethodImplementation(content *strings.Builder, method types.APIMeth
 	requestPath := routePath
 
 	if method.HasIDParam {
-		// Replace any parameter pattern /:paramName with ${id}
-		re := regexp.MustCompile(`/:[^/]+`)
-		requestPath = re.ReplaceAllString(requestPath, "/$${id}")
+		// Replace both :param and {param} patterns with ${id}
+		// Handle :param format (like Express.js)
+		re1 := regexp.MustCompile(`/:[^/]+`)
+		requestPath = re1.ReplaceAllString(requestPath, "/$${id}")
+
+		// Handle {param} format (like OpenAPI)
+		re2 := regexp.MustCompile(`/\{[^}]+\}`)
+		requestPath = re2.ReplaceAllString(requestPath, "/$${id}")
 	}
 
 	indentStr := strings.Repeat("  ", indent+1)

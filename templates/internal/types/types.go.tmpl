@@ -12,6 +12,20 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
+// CreateUserRequest represents the request payload for creating a user
+type CreateUserRequest struct {
+	Name  string `json:"name" minLength:"1" maxLength:"100" example:"John Doe" doc:"User's full name"`
+	Email string `json:"email" format:"email" example:"john@example.com" doc:"User's email address"`
+	Age   int    `json:"age" minimum:"0" maximum:"150" example:"30" doc:"User's age"`
+}
+
+// UpdateUserRequest represents the request payload for updating a user
+type UpdateUserRequest struct {
+	Name  string `json:"name,omitempty" minLength:"1" maxLength:"100" example:"John Doe" doc:"User's full name"`
+	Email string `json:"email,omitempty" format:"email" example:"john@example.com" doc:"User's email address"`
+	Age   int    `json:"age,omitempty" minimum:"0" maximum:"150" example:"30" doc:"User's age"`
+}
+
 // Post represents a blog post or article
 type Post struct {
 	ID        int       `json:"id" db:"id"`
@@ -22,6 +36,22 @@ type Post struct {
 	Published bool      `json:"published" db:"published"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// CreatePostRequest represents the request payload for creating a post
+type CreatePostRequest struct {
+	Title     string `json:"title" minLength:"1" maxLength:"200" example:"My First Post" doc:"Post title"`
+	Content   string `json:"content" minLength:"10" example:"This is the content of my post..." doc:"Post content"`
+	UserID    int    `json:"user_id" minimum:"1" example:"1" doc:"ID of the user creating the post"`
+	Published bool   `json:"published" example:"false" doc:"Whether the post is published"`
+}
+
+// UpdatePostRequest represents the request payload for updating a post
+type UpdatePostRequest struct {
+	Title     string `json:"title,omitempty" minLength:"1" maxLength:"200" example:"Updated Post Title" doc:"Post title"`
+	Content   string `json:"content,omitempty" minLength:"10" example:"Updated content..." doc:"Post content"`
+	UserID    int    `json:"user_id,omitempty" minimum:"1" example:"1" doc:"ID of the user who owns the post"`
+	Published bool   `json:"published,omitempty" example:"true" doc:"Whether the post is published"`
 }
 
 // Comment represents a comment on a post
