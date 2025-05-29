@@ -280,14 +280,20 @@ func generateNestedObject(content *strings.Builder, nested types.NestedAPI, inde
 	for i, key := range keys {
 		value := nested[key]
 
+		// Quote key if it contains hyphens or other special characters
+		quotedKey := key
+		if strings.Contains(key, "-") || strings.Contains(key, " ") || !isValidJSIdentifier(key) {
+			quotedKey = fmt.Sprintf(`"%s"`, key)
+		}
+
 		switch v := value.(type) {
 		case types.APIMethod:
 			// Generate method implementation
-			content.WriteString(fmt.Sprintf("%s%s: ", indentStr, key))
+			content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
 			generateMethodImplementation(content, v, indent)
 		case types.NestedAPI:
 			// Generate nested object
-			content.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, key))
+			content.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, quotedKey))
 			generateNestedObject(content, v, indent+1)
 			content.WriteString(fmt.Sprintf("%s}", indentStr))
 		}
@@ -450,4 +456,30 @@ func singularize(s string) string {
 		return s[:len(s)-1]
 	}
 	return s
+}
+
+func isValidJSIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	// Check if the first character is valid (letter, underscore, or dollar sign)
+	firstChar := rune(s[0])
+	if !((firstChar >= 'a' && firstChar <= 'z') ||
+		(firstChar >= 'A' && firstChar <= 'Z') ||
+		firstChar == '_' || firstChar == '$') {
+		return false
+	}
+
+	// Check if remaining characters are valid (letters, digits, underscores, or dollar signs)
+	for _, char := range s[1:] {
+		if !((char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '_' || char == '$') {
+			return false
+		}
+	}
+
+	return true
 }
