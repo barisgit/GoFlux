@@ -1,0 +1,207 @@
+package api
+
+import (
+	"strconv"
+	"{{.ModuleName}}/internal/db"
+	"{{.ModuleName}}/internal/types"
+
+	"github.com/gofiber/fiber/v2"
+)
+
+// SetupRoutes configures all API routes
+func SetupRoutes(api fiber.Router, database db.Database) {
+	// Users routes
+	users := api.Group("/users")
+	setupUserRoutes(users, database)
+
+	// Posts routes (example of nested resource)
+	posts := api.Group("/posts")
+	setupPostRoutes(posts, database)
+}
+
+// User routes
+func setupUserRoutes(router fiber.Router, db db.Database) {
+	router.Get("/", getUsers)
+	router.Get("/:id", getUser)
+	router.Post("/", createUser)
+	router.Put("/:id", updateUser)
+	router.Delete("/:id", deleteUser)
+}
+
+// Post routes
+func setupPostRoutes(router fiber.Router, db db.Database) {
+	router.Get("/", getPosts)
+	router.Get("/:id", getPost)
+	router.Post("/", createPost)
+	router.Put("/:id", updatePost)
+	router.Delete("/:id", deletePost)
+	
+	// Nested routes - posts by user
+	router.Get("/user/:userId", getPostsByUser)
+}
+
+// User handlers
+func getUsers(c *fiber.Ctx) error {
+	// In a real app, this would query the database
+	users := []types.User{
+		{ID: 1, Name: "John Doe", Email: "john@example.com", Age: 30},
+		{ID: 2, Name: "Jane Smith", Email: "jane@example.com", Age: 25},
+	}
+	return c.JSON(users)
+}
+
+func getUser(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
+
+	// Mock user data
+	user := types.User{
+		ID:    id,
+		Name:  "John Doe",
+		Email: "john@example.com",
+		Age:   30,
+	}
+
+	return c.JSON(user)
+}
+
+func createUser(c *fiber.Ctx) error {
+	var user types.User
+	if err := c.BodyParser(&user); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
+	}
+
+	// Validate required fields
+	if user.Name == "" || user.Email == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Name and email are required"})
+	}
+
+	// In a real app, save to database
+	user.ID = 3 // Mock ID
+	
+	return c.Status(201).JSON(user)
+}
+
+func updateUser(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
+
+	var updates types.User
+	if err := c.BodyParser(&updates); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
+	}
+
+	// In a real app, update in database
+	user := types.User{
+		ID:    id,
+		Name:  updates.Name,
+		Email: updates.Email,
+		Age:   updates.Age,
+	}
+
+	return c.JSON(user)
+}
+
+func deleteUser(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
+
+	// In a real app, delete from database
+	return c.JSON(fiber.Map{
+		"message": "User deleted successfully",
+		"id":      id,
+	})
+}
+
+// Post handlers
+func getPosts(c *fiber.Ctx) error {
+	posts := []types.Post{
+		{ID: 1, Title: "First Post", Content: "This is the content of the first post", UserID: 1},
+		{ID: 2, Title: "Second Post", Content: "This is the content of the second post", UserID: 2},
+	}
+	return c.JSON(posts)
+}
+
+func getPost(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid post ID"})
+	}
+
+	post := types.Post{
+		ID:      id,
+		Title:   "Sample Post",
+		Content: "This is a sample post content",
+		UserID:  1,
+	}
+
+	return c.JSON(post)
+}
+
+func createPost(c *fiber.Ctx) error {
+	var post types.Post
+	if err := c.BodyParser(&post); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
+	}
+
+	if post.Title == "" || post.Content == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Title and content are required"})
+	}
+
+	post.ID = 3 // Mock ID
+	
+	return c.Status(201).JSON(post)
+}
+
+func updatePost(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid post ID"})
+	}
+
+	var updates types.Post
+	if err := c.BodyParser(&updates); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
+	}
+
+	post := types.Post{
+		ID:      id,
+		Title:   updates.Title,
+		Content: updates.Content,
+		UserID:  updates.UserID,
+	}
+
+	return c.JSON(post)
+}
+
+func deletePost(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid post ID"})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Post deleted successfully",
+		"id":      id,
+	})
+}
+
+func getPostsByUser(c *fiber.Ctx) error {
+	userID, err := strconv.Atoi(c.Params("userId"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
+
+	posts := []types.Post{
+		{ID: 1, Title: "User's First Post", Content: "Content here", UserID: userID},
+		{ID: 2, Title: "User's Second Post", Content: "More content", UserID: userID},
+	}
+
+	return c.JSON(posts)
+} 

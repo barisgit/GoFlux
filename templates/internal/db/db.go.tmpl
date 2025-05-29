@@ -1,0 +1,178 @@
+package db
+
+import (
+	"{{.ModuleName}}/internal/types"
+)
+
+// Database interface defines the database operations
+type Database interface {
+	// User operations
+	GetUsers() ([]types.User, error)
+	GetUserByID(id int) (*types.User, error)
+	CreateUser(user *types.User) error
+	UpdateUser(user *types.User) error
+	DeleteUser(id int) error
+
+	// Post operations
+	GetPosts() ([]types.Post, error)
+	GetPostByID(id int) (*types.Post, error)
+	GetPostsByUserID(userID int) ([]types.Post, error)
+	CreatePost(post *types.Post) error
+	UpdatePost(post *types.Post) error
+	DeletePost(id int) error
+
+	// Comment operations
+	GetCommentsByPostID(postID int) ([]types.Comment, error)
+	CreateComment(comment *types.Comment) error
+	DeleteComment(id int) error
+}
+
+// MockDB implements Database interface with in-memory data
+type MockDB struct {
+	users    []types.User
+	posts    []types.Post
+	comments []types.Comment
+	nextID   int
+}
+
+// NewMockDB creates a new mock database with sample data
+func NewMockDB() *MockDB {
+	return &MockDB{
+		users: []types.User{
+			{ID: 1, Name: "John Doe", Email: "john@example.com", Age: 30},
+			{ID: 2, Name: "Jane Smith", Email: "jane@example.com", Age: 25},
+			{ID: 3, Name: "Bob Johnson", Email: "bob@example.com", Age: 35},
+		},
+		posts: []types.Post{
+			{ID: 1, Title: "First Post", Content: "This is the content of the first post", UserID: 1, Published: true},
+			{ID: 2, Title: "Second Post", Content: "This is the content of the second post", UserID: 2, Published: true},
+			{ID: 3, Title: "Draft Post", Content: "This is a draft post", UserID: 1, Published: false},
+		},
+		comments: []types.Comment{
+			{ID: 1, Content: "Great post!", PostID: 1, UserID: 2},
+			{ID: 2, Content: "Thanks for sharing", PostID: 1, UserID: 3},
+			{ID: 3, Content: "Interesting perspective", PostID: 2, UserID: 1},
+		},
+		nextID: 4,
+	}
+}
+
+// User operations
+func (db *MockDB) GetUsers() ([]types.User, error) {
+	return db.users, nil
+}
+
+func (db *MockDB) GetUserByID(id int) (*types.User, error) {
+	for _, user := range db.users {
+		if user.ID == id {
+			return &user, nil
+		}
+	}
+	return nil, nil
+}
+
+func (db *MockDB) CreateUser(user *types.User) error {
+	user.ID = db.nextID
+	db.nextID++
+	db.users = append(db.users, *user)
+	return nil
+}
+
+func (db *MockDB) UpdateUser(user *types.User) error {
+	for i, u := range db.users {
+		if u.ID == user.ID {
+			db.users[i] = *user
+			return nil
+		}
+	}
+	return nil
+}
+
+func (db *MockDB) DeleteUser(id int) error {
+	for i, user := range db.users {
+		if user.ID == id {
+			db.users = append(db.users[:i], db.users[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+// Post operations
+func (db *MockDB) GetPosts() ([]types.Post, error) {
+	return db.posts, nil
+}
+
+func (db *MockDB) GetPostByID(id int) (*types.Post, error) {
+	for _, post := range db.posts {
+		if post.ID == id {
+			return &post, nil
+		}
+	}
+	return nil, nil
+}
+
+func (db *MockDB) GetPostsByUserID(userID int) ([]types.Post, error) {
+	var userPosts []types.Post
+	for _, post := range db.posts {
+		if post.UserID == userID {
+			userPosts = append(userPosts, post)
+		}
+	}
+	return userPosts, nil
+}
+
+func (db *MockDB) CreatePost(post *types.Post) error {
+	post.ID = db.nextID
+	db.nextID++
+	db.posts = append(db.posts, *post)
+	return nil
+}
+
+func (db *MockDB) UpdatePost(post *types.Post) error {
+	for i, p := range db.posts {
+		if p.ID == post.ID {
+			db.posts[i] = *post
+			return nil
+		}
+	}
+	return nil
+}
+
+func (db *MockDB) DeletePost(id int) error {
+	for i, post := range db.posts {
+		if post.ID == id {
+			db.posts = append(db.posts[:i], db.posts[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+// Comment operations
+func (db *MockDB) GetCommentsByPostID(postID int) ([]types.Comment, error) {
+	var postComments []types.Comment
+	for _, comment := range db.comments {
+		if comment.PostID == postID {
+			postComments = append(postComments, comment)
+		}
+	}
+	return postComments, nil
+}
+
+func (db *MockDB) CreateComment(comment *types.Comment) error {
+	comment.ID = db.nextID
+	db.nextID++
+	db.comments = append(db.comments, *comment)
+	return nil
+}
+
+func (db *MockDB) DeleteComment(id int) error {
+	for i, comment := range db.comments {
+		if comment.ID == id {
+			db.comments = append(db.comments[:i], db.comments[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+} 

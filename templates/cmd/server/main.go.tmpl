@@ -1,0 +1,38 @@
+package main
+
+import (
+	"log"
+	"{{.ModuleName}}/internal/api"
+	"{{.ModuleName}}/internal/db"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+)
+
+func main() {
+	app := fiber.New()
+
+	app.Use(cors.New())
+	app.Use(logger.New(logger.Config{
+		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path}\n",
+	}))
+
+	// Health check endpoint
+	app.Get("/api/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"status": "ok",
+			"message": "{{.ProjectName}} server is running!",
+		})
+	})
+
+	// Initialize database (mock database for demo)
+	database := db.NewMockDB()
+
+	// Setup API routes
+	apiGroup := app.Group("/api")
+	api.SetupRoutes(apiGroup, database)
+
+	log.Println("🚀 Server starting on http://localhost:{{.BackendPort}}")
+	log.Fatal(app.Listen(":{{.BackendPort}}"))
+} 
