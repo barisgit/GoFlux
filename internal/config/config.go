@@ -16,12 +16,29 @@ type ProjectConfig struct {
 
 type FrontendConfig struct {
 	Framework  string          `yaml:"framework"`
-	InstallCmd string          `yaml:"install_cmd"`
+	InstallCmd string          `yaml:"install_cmd,omitempty"` // Legacy support
 	DevCmd     string          `yaml:"dev_cmd"`
 	BuildCmd   string          `yaml:"build_cmd"`
 	TypesDir   string          `yaml:"types_dir"`
 	LibDir     string          `yaml:"lib_dir"`
 	StaticGen  StaticGenConfig `yaml:"static_gen"`
+	Template   TemplateConfig  `yaml:"template,omitempty"` // New template configuration
+}
+
+// TemplateConfig defines how the frontend should be generated
+type TemplateConfig struct {
+	Type   string `yaml:"type"`   // "hardcoded", "script", "custom", "remote"
+	Source string `yaml:"source"` // template name, script command, or URL/path
+
+	// For remote templates
+	URL     string            `yaml:"url,omitempty"`     // GitHub URL or local path
+	Version string            `yaml:"version,omitempty"` // Git tag, branch, or "latest"
+	Cache   bool              `yaml:"cache,omitempty"`   // Whether to cache the template
+	Vars    map[string]string `yaml:"vars,omitempty"`    // Template variables
+
+	// For custom commands
+	Command string `yaml:"command,omitempty"` // Custom installation command
+	Dir     string `yaml:"dir,omitempty"`     // Working directory for command
 }
 
 type StaticGenConfig struct {

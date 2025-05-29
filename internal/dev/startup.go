@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"goflux/internal/frontend"
 )
 
 func (o *DevOrchestrator) Start() error {
@@ -68,8 +70,9 @@ func (o *DevOrchestrator) Start() error {
 		o.log("⚠️  Warning: Could not install Go dependencies", "\x1b[33m")
 	}
 
-	// Define processes with dynamic ports
-	frontendDevCmd := strings.Replace(o.config.Frontend.DevCmd, "3001", fmt.Sprintf("%d", o.frontendPort), -1)
+	// Use frontend manager to get dev command
+	frontendManager := frontend.NewManager(o.config, o.debug)
+	frontendDevCmd := frontendManager.GetDevCommand(o.frontendPort)
 
 	o.processes = []ProcessInfo{
 		{
@@ -170,32 +173,28 @@ func (o *DevOrchestrator) setupFrontendIfNeeded() error {
 	packageJsonPath := filepath.Join(frontendPath, "package.json")
 
 	if _, err := os.Stat(packageJsonPath); os.IsNotExist(err) {
-		o.log(fmt.Sprintf("📦 Setting up %s frontend for the first time...", o.config.Frontend.Framework), "\x1b[33m")
+		o.log("📦 Setting up frontend for the first time...", "\x1b[33m")
 
-		// Create frontend directory first
-		if err := os.MkdirAll(frontendPath, 0755); err != nil {
-			return fmt.Errorf("failed to create frontend directory: %w", err)
-		}
+		// Use the new frontend management system
+		frontendManager := frontend.NewManager(o.config, o.debug)
 
-		// Use the install command from config
-		installCmd := exec.Command("sh", "-c", o.config.Frontend.InstallCmd)
-		installCmd.Dir = frontendPath
-		installCmd.Stdout = os.Stdout
-		installCmd.Stderr = os.Stderr
-
-		if err := installCmd.Run(); err != nil {
+		// Setup frontend using the new system
+		if err := frontendManager.Setup("."); err != nil {
 			return fmt.Errorf("failed to setup frontend: %w", err)
 		}
 
 		// Install dependencies
-		if _, err := os.Stat(filepath.Join(frontendPath, "package.json")); err == nil {
+		if _, err := os.Stat(packageJsonPath); err == nil {
 			o.log("📦 Installing frontend dependencies...", "\x1b[33m")
-			pnpmCmd := exec.Command("pnpm", "install")
-			pnpmCmd.Dir = frontendPath
-			pnpmCmd.Stdout = os.Stdout
-			pnpmCmd.Stderr = os.Stderr
 
-			if err := pnpmCmd.Run(); err != nil {
+			// Use the install command from the frontend manager
+			installCmd := frontendManager.GetInstallCommand()
+			cmd := exec.Command("sh", "-c", installCmd)
+			cmd.Dir = frontendPath
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("failed to install frontend dependencies: %w", err)
 			}
 		}
