@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"goflux/internal/config"
+	"goflux/internal/templates"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,49 +12,7 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
-
-	"goflux/internal/templates"
 )
-
-type ProjectConfig struct {
-	Name     string         `yaml:"name"`
-	Port     int            `yaml:"port"`
-	Frontend FrontendConfig `yaml:"frontend"`
-	Backend  BackendConfig  `yaml:"backend"`
-	Build    BuildConfig    `yaml:"build"`
-}
-
-type FrontendConfig struct {
-	Framework  string          `yaml:"framework"`
-	InstallCmd string          `yaml:"install_cmd"`
-	DevCmd     string          `yaml:"dev_cmd"`
-	BuildCmd   string          `yaml:"build_cmd"`
-	TypesDir   string          `yaml:"types_dir"`
-	LibDir     string          `yaml:"lib_dir"`
-	StaticGen  StaticGenConfig `yaml:"static_gen"`
-}
-
-type StaticGenConfig struct {
-	Enabled     bool     `yaml:"enabled"`
-	BuildSSRCmd string   `yaml:"build_ssr_cmd"`
-	GenerateCmd string   `yaml:"generate_cmd"`
-	Routes      []string `yaml:"routes"`
-	SPARouting  bool     `yaml:"spa_routing"`
-}
-
-type BackendConfig struct {
-	Router string `yaml:"router"`
-}
-
-type BuildConfig struct {
-	OutputDir   string `yaml:"output_dir"`
-	BinaryName  string `yaml:"binary_name"`
-	EmbedStatic bool   `yaml:"embed_static"`
-	StaticDir   string `yaml:"static_dir"`
-	BuildTags   string `yaml:"build_tags"`
-	LDFlags     string `yaml:"ldflags"`
-	CGOEnabled  bool   `yaml:"cgo_enabled"`
-}
 
 func NewCmd() *cobra.Command {
 	return &cobra.Command{
@@ -123,8 +83,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate flux.yaml config
-	config := generateConfig(projectName, frontendFramework, backendRouter)
-	if err := writeConfig(filepath.Join(projectName, "flux.yaml"), config); err != nil {
+	cfg := generateConfig(projectName, frontendFramework, backendRouter)
+	if err := writeConfig(filepath.Join(projectName, "flux.yaml"), cfg); err != nil {
 		return err
 	}
 
@@ -141,19 +101,19 @@ func runNew(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func generateConfig(name, frontend, backend string) ProjectConfig {
-	var frontendConfig FrontendConfig
+func generateConfig(name, frontend, backend string) config.ProjectConfig {
+	var frontendConfig config.FrontendConfig
 
 	switch {
 	case strings.Contains(frontend, "TanStack"):
-		frontendConfig = FrontendConfig{
+		frontendConfig = config.FrontendConfig{
 			Framework:  "tanstack-router",
 			InstallCmd: "pnpx create-tsrouter-app@latest . --template file-router",
 			DevCmd:     "cd frontend && pnpm dev --port 3001 --host",
 			BuildCmd:   "cd frontend && pnpm build",
 			TypesDir:   "src/types",
 			LibDir:     "src/lib",
-			StaticGen: StaticGenConfig{
+			StaticGen: config.StaticGenConfig{
 				Enabled:     false,
 				BuildSSRCmd: "cd frontend && pnpm build:ssr",
 				GenerateCmd: "pnpx tsx scripts/generate-static.ts",
@@ -162,14 +122,14 @@ func generateConfig(name, frontend, backend string) ProjectConfig {
 			},
 		}
 	case strings.Contains(frontend, "Next.js"):
-		frontendConfig = FrontendConfig{
+		frontendConfig = config.FrontendConfig{
 			Framework:  "nextjs",
 			InstallCmd: "pnpm create next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias '@/*' --yes",
 			DevCmd:     "cd frontend && pnpm dev --port 3001",
 			BuildCmd:   "cd frontend && pnpm build",
 			TypesDir:   "src/types",
 			LibDir:     "src/lib",
-			StaticGen: StaticGenConfig{
+			StaticGen: config.StaticGenConfig{
 				Enabled:     true,
 				BuildSSRCmd: "cd frontend && pnpm build && pnpm export",
 				GenerateCmd: "",
@@ -178,14 +138,14 @@ func generateConfig(name, frontend, backend string) ProjectConfig {
 			},
 		}
 	default: // Vite + React
-		frontendConfig = FrontendConfig{
+		frontendConfig = config.FrontendConfig{
 			Framework:  "vite-react",
 			InstallCmd: "pnpm create vite@latest . -- --template react-ts",
 			DevCmd:     "cd frontend && pnpm dev --port 3001 --host",
 			BuildCmd:   "cd frontend && pnpm build",
 			TypesDir:   "src/types",
 			LibDir:     "src/lib",
-			StaticGen: StaticGenConfig{
+			StaticGen: config.StaticGenConfig{
 				Enabled:     false,
 				BuildSSRCmd: "",
 				GenerateCmd: "",
@@ -195,14 +155,14 @@ func generateConfig(name, frontend, backend string) ProjectConfig {
 		}
 	}
 
-	return ProjectConfig{
+	return config.ProjectConfig{
 		Name:     name,
 		Port:     3000,
 		Frontend: frontendConfig,
-		Backend: BackendConfig{
+		Backend: config.BackendConfig{
 			Router: backend,
 		},
-		Build: BuildConfig{
+		Build: config.BuildConfig{
 			OutputDir:   "dist",
 			BinaryName:  "server",
 			EmbedStatic: true,
@@ -214,10 +174,10 @@ func generateConfig(name, frontend, backend string) ProjectConfig {
 	}
 }
 
-func writeConfig(path string, config ProjectConfig) error {
-	data, err := yaml.Marshal(config)
+func writeConfig(path string, cfg config.ProjectConfig) error {
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
 	return os.WriteFile(path, data, 0644)

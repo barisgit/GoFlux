@@ -1,0 +1,207 @@
+package dev
+
+import (
+	"fmt"
+	"goflux/internal/config"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+func (o *DevOrchestrator) setupFileWatcher() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	o.fileWatcher = watcher
+
+	// Watch directories that contain API-related files
+	watchDirs := []string{
+		"internal/api",
+		"internal/types",
+		"cmd/server",
+	}
+
+	for _, dir := range watchDirs {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			if err := o.fileWatcher.Add(dir); err != nil {
+				o.log(fmt.Sprintf("⚠️  Warning: Could not watch %s: %v", dir, err), "\x1b[33m")
+			}
+		}
+	}
+
+	// Start watching in a goroutine
+	go o.handleFileEvents()
+
+	return nil
+}
+
+func (o *DevOrchestrator) setupConfigWatcher() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create config watcher: %w", err)
+	}
+	o.configWatcher = watcher
+
+	// Watch the current directory for flux.yaml changes
+	if err := o.configWatcher.Add("."); err != nil {
+		return fmt.Errorf("failed to watch current directory: %w", err)
+	}
+
+	// Start watching in a goroutine
+	go o.handleConfigEvents()
+
+	return nil
+}
+
+func (o *DevOrchestrator) handleFileEvents() {
+	for {
+		select {
+		case event, ok := <-o.fileWatcher.Events:
+			if !ok {
+				return
+			}
+
+			// Only trigger on .go files in API-related directories
+			if strings.HasSuffix(event.Name, ".go") &&
+				(event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
+
+				// Debounce - only restart if it's been at least 2 seconds since last restart
+				o.typeGenMutex.Lock()
+				if time.Since(o.lastTypeGen) > 2*time.Second {
+					o.lastTypeGen = time.Now()
+					o.typeGenMutex.Unlock()
+
+					// Restart backend and regenerate types
+					go func(fileName string) {
+						o.log(fmt.Sprintf("📝 %s changed, restarting backend...", filepath.Base(fileName)), "\x1b[36m")
+
+						// Restart backend directly
+						if err := o.restartBackend(); err != nil {
+							o.log(fmt.Sprintf("❌ Failed to restart backend: %v", err), "\x1b[31m")
+							return
+						}
+
+						// Wait for backend to be ready
+						o.log("⏳ Waiting for backend to be ready...", "\x1b[33m")
+						if o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
+							// Small delay to ensure server is fully initialized
+							time.Sleep(1 * time.Second)
+
+							// Fetch fresh OpenAPI spec
+							if err := o.fetchAndSaveOpenAPISpec(); err != nil {
+								o.log("⚠️  Warning: Could not fetch fresh OpenAPI spec", "\x1b[33m")
+								if o.debug {
+									o.log(fmt.Sprintf("OpenAPI fetch error: %v", err), "\x1b[31m")
+								}
+								return
+							}
+
+							// Generate types with fresh spec
+							o.log("🔧 Regenerating types from fresh OpenAPI spec...", "\x1b[36m")
+							if err := o.generateTypes(); err != nil {
+								o.log("⚠️  Warning: Could not regenerate types", "\x1b[33m")
+								if o.debug {
+									o.log(fmt.Sprintf("Type generation error: %v", err), "\x1b[31m")
+								}
+							} else {
+								o.log("✅ Backend restarted and types regenerated!", "\x1b[32m")
+							}
+						} else {
+							o.log("⚠️  Backend not ready after restart, skipping type generation", "\x1b[33m")
+						}
+					}(event.Name)
+				} else {
+					o.typeGenMutex.Unlock()
+				}
+			}
+
+		case err, ok := <-o.fileWatcher.Errors:
+			if !ok {
+				return
+			}
+			if o.debug {
+				o.log(fmt.Sprintf("File watcher error: %v", err), "\x1b[31m")
+			}
+		}
+	}
+}
+
+func (o *DevOrchestrator) handleConfigEvents() {
+	for {
+		select {
+		case event, ok := <-o.configWatcher.Events:
+			if !ok {
+				return
+			}
+
+			// Only trigger on flux.yaml changes
+			if strings.HasSuffix(event.Name, "flux.yaml") &&
+				(event.Op&fsnotify.Write == fsnotify.Write) {
+
+				// Debounce config changes
+				o.typeGenMutex.Lock()
+				if time.Since(o.lastTypeGen) > 1*time.Second {
+					o.lastTypeGen = time.Now()
+					o.typeGenMutex.Unlock()
+
+					go func() {
+						o.log("⚙️  flux.yaml changed, reloading configuration...", "\x1b[33m")
+
+						// Read new config
+						newConfig, err := config.ReadConfig("flux.yaml")
+						if err != nil {
+							o.log(fmt.Sprintf("❌ Failed to reload config: %v", err), "\x1b[31m")
+							return
+						}
+
+						// Update config with write lock
+						o.configMutex.Lock()
+						oldConfig := o.config
+						o.config = newConfig
+						o.configMutex.Unlock()
+
+						// Check if we need to restart services
+						configChanged := o.checkConfigChanges(oldConfig, newConfig)
+						if configChanged {
+							o.log("🔄 Configuration changes detected, restarting services...", "\x1b[36m")
+							o.restartServicesForConfig()
+						} else {
+							o.log("✅ Configuration reloaded (no restart needed)", "\x1b[32m")
+						}
+					}()
+				} else {
+					o.typeGenMutex.Unlock()
+				}
+			}
+
+		case err, ok := <-o.configWatcher.Errors:
+			if !ok {
+				return
+			}
+			if o.debug {
+				o.log(fmt.Sprintf("Config watcher error: %v", err), "\x1b[31m")
+			}
+		}
+	}
+}
+
+func (o *DevOrchestrator) checkConfigChanges(old, new *config.ProjectConfig) bool {
+	// Check if changes require service restart
+	if old.Port != new.Port ||
+		old.Frontend.DevCmd != new.Frontend.DevCmd ||
+		old.Backend.Router != new.Backend.Router {
+		return true
+	}
+	return false
+}
+
+func (o *DevOrchestrator) restartServicesForConfig() {
+	// This would restart services based on config changes
+	// For now, we'll just log that this functionality exists
+	o.log("🔄 Service restart for config changes not yet implemented", "\x1b[33m")
+	o.log("💡 Please restart the dev environment manually for now", "\x1b[36m")
+}

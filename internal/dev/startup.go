@@ -1,0 +1,421 @@
+package dev
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+)
+
+func (o *DevOrchestrator) Start() error {
+	o.shutdownChan = make(chan bool, 1)
+	o.setupGracefulShutdown()
+
+	// Ensure cleanup happens no matter what
+	defer func() {
+		if !o.isShuttingDown {
+			o.log("🚨 Emergency cleanup triggered", "\x1b[31m")
+			o.isShuttingDown = true
+			o.shutdown()
+		}
+	}()
+
+	o.log(fmt.Sprintf("🚀 Starting GoFlux development environment for '%s'", o.config.Name), "\x1b[32m")
+
+	// Assign dynamic ports
+	o.frontendPort = o.findFreePort(o.config.Port + 1)
+	o.backendPort = o.findFreePort(o.frontendPort + 1)
+
+	o.log(fmt.Sprintf("🔧 Assigned ports - Frontend: %d, Backend: %d, Proxy: %d", o.frontendPort, o.backendPort, o.config.Port), "\x1b[36m")
+
+	// Clean up any existing processes on our ports before starting
+	o.log("🧹 Cleaning up any existing processes on target ports...", "\x1b[33m")
+	o.forceKillPortProcesses()
+
+	// Setup frontend if needed
+	if err := o.setupFrontendIfNeeded(); err != nil {
+		return err
+	}
+
+	// Check if frontend dependencies are installed
+	frontendDir := "frontend"
+	if _, err := os.Stat(filepath.Join(frontendDir, "node_modules")); os.IsNotExist(err) {
+		o.log("📦 Installing frontend dependencies...", "\x1b[33m")
+		installCmd := exec.Command("pnpm", "install")
+		installCmd.Dir = frontendDir
+		installCmd.Stdout = os.Stdout
+		installCmd.Stderr = os.Stderr
+		if err := installCmd.Run(); err != nil {
+			return fmt.Errorf("failed to install frontend dependencies: %w", err)
+		}
+	}
+
+	// Install Go dependencies
+	o.log("📦 Installing Go dependencies...", "\x1b[33m")
+	goModCmd := exec.Command("go", "mod", "tidy")
+	goModCmd.Stdout = os.Stdout
+	goModCmd.Stderr = os.Stderr
+	if err := goModCmd.Run(); err != nil {
+		o.log("⚠️  Warning: Could not install Go dependencies", "\x1b[33m")
+	}
+
+	// Define processes with dynamic ports
+	frontendDevCmd := strings.Replace(o.config.Frontend.DevCmd, "3001", fmt.Sprintf("%d", o.frontendPort), -1)
+
+	o.processes = []ProcessInfo{
+		{
+			Name:    "Frontend",
+			Command: "sh",
+			Args:    []string{"-c", frontendDevCmd},
+			Dir:     "",
+			Color:   "\x1b[35m", // Magenta
+		},
+	}
+
+	// Start frontend
+	if err := o.startProcess(&o.processes[0]); err != nil {
+		return err
+	}
+
+	// Wait for frontend to be ready
+	o.log("⏳ Waiting for frontend dev server...", "\x1b[33m")
+	if !o.waitForPort(fmt.Sprintf("%d", o.frontendPort), 15*time.Second) {
+		return fmt.Errorf("frontend dev server failed to start on port %d", o.frontendPort)
+	}
+	o.log(fmt.Sprintf("✅ Frontend dev server ready on port %d", o.frontendPort), "\x1b[32m")
+
+	// Start backend with our own process manager
+	if err := o.startBackendProcess(); err != nil {
+		return err
+	}
+
+	// Wait for backend to be ready
+	o.log("⏳ Waiting for backend server...", "\x1b[33m")
+	if !o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
+		return fmt.Errorf("backend server failed to start on port %d", o.backendPort)
+	}
+
+	// Setup file watcher for automatic type generation
+	if err := o.setupFileWatcher(); err != nil {
+		o.log("⚠️  Warning: Could not setup file watcher", "\x1b[33m")
+		if o.debug {
+			o.log(fmt.Sprintf("File watcher error: %v", err), "\x1b[31m")
+		}
+	}
+
+	// Setup config watcher for hot reload
+	if err := o.setupConfigWatcher(); err != nil {
+		o.log("⚠️  Warning: Could not setup config watcher", "\x1b[33m")
+		if o.debug {
+			o.log(fmt.Sprintf("Config watcher error: %v", err), "\x1b[31m")
+		}
+	} else {
+		o.log("⚙️  Config hot reload enabled", "\x1b[36m")
+	}
+
+	// Fetch and save OpenAPI spec from running server
+	if err := o.fetchAndSaveOpenAPISpec(); err != nil {
+		o.log("⚠️  Warning: Could not fetch OpenAPI spec", "\x1b[33m")
+		if o.debug {
+			o.log(fmt.Sprintf("OpenAPI fetch error: %v", err), "\x1b[31m")
+		}
+	} else {
+		// Generate initial types
+		o.log("🔧 Generating initial API types...", "\x1b[36m")
+		if err := o.generateTypes(); err != nil {
+			o.log("⚠️  Warning: Could not generate initial types", "\x1b[33m")
+			if o.debug {
+				o.log(fmt.Sprintf("Type generation error: %v", err), "\x1b[31m")
+			}
+		}
+	}
+
+	// Start proxy server
+	o.log("🔗 Starting development proxy...", "\x1b[36m")
+	go o.startProxy()
+
+	// Wait for proxy to be ready
+	o.log("⏳ Waiting for proxy server...", "\x1b[33m")
+	if !o.waitForPort(fmt.Sprintf("%d", o.config.Port), 10*time.Second) {
+		return fmt.Errorf("proxy server failed to start on port %d", o.config.Port)
+	}
+
+	o.log("🎉 Development environment ready!", "\x1b[32m")
+	o.log(fmt.Sprintf("🌐 Development: http://localhost:%d (proxy)", o.config.Port), "\x1b[36m")
+	o.log(fmt.Sprintf("🌐 Frontend: http://localhost:%d (direct)", o.frontendPort), "\x1b[36m")
+	o.log(fmt.Sprintf("🔌 Backend: http://localhost:%d (direct)", o.backendPort), "\x1b[36m")
+	o.log(fmt.Sprintf("📡 API: http://localhost:%d/api/health", o.config.Port), "\x1b[36m")
+	o.log("⚡ Hot reload enabled with intelligent file watching", "\x1b[36m")
+	o.log("🔄 Automatic backend restart and type generation", "\x1b[36m")
+	o.log("⚙️  Configuration hot reload (flux.yaml)", "\x1b[36m")
+	o.log("", "")
+	o.log("Press Ctrl+C to stop all servers", "\x1b[33m")
+
+	// Wait for shutdown signal
+	<-o.shutdownChan
+	return nil
+}
+
+func (o *DevOrchestrator) setupFrontendIfNeeded() error {
+	frontendPath := "frontend"
+	packageJsonPath := filepath.Join(frontendPath, "package.json")
+
+	if _, err := os.Stat(packageJsonPath); os.IsNotExist(err) {
+		o.log(fmt.Sprintf("📦 Setting up %s frontend for the first time...", o.config.Frontend.Framework), "\x1b[33m")
+
+		// Create frontend directory first
+		if err := os.MkdirAll(frontendPath, 0755); err != nil {
+			return fmt.Errorf("failed to create frontend directory: %w", err)
+		}
+
+		// Use the install command from config
+		installCmd := exec.Command("sh", "-c", o.config.Frontend.InstallCmd)
+		installCmd.Dir = frontendPath
+		installCmd.Stdout = os.Stdout
+		installCmd.Stderr = os.Stderr
+
+		if err := installCmd.Run(); err != nil {
+			return fmt.Errorf("failed to setup frontend: %w", err)
+		}
+
+		// Install dependencies
+		if _, err := os.Stat(filepath.Join(frontendPath, "package.json")); err == nil {
+			o.log("📦 Installing frontend dependencies...", "\x1b[33m")
+			pnpmCmd := exec.Command("pnpm", "install")
+			pnpmCmd.Dir = frontendPath
+			pnpmCmd.Stdout = os.Stdout
+			pnpmCmd.Stderr = os.Stderr
+
+			if err := pnpmCmd.Run(); err != nil {
+				return fmt.Errorf("failed to install frontend dependencies: %w", err)
+			}
+		}
+
+		o.log("✅ Frontend setup complete!", "\x1b[32m")
+	} else {
+		o.log("✅ Frontend already configured", "\x1b[32m")
+	}
+
+	return nil
+}
+
+func (o *DevOrchestrator) startProcess(processInfo *ProcessInfo) error {
+	o.log(fmt.Sprintf("🚀 Starting %s...", processInfo.Name), processInfo.Color)
+
+	cmd := exec.Command(processInfo.Command, processInfo.Args...)
+	if processInfo.Dir != "" {
+		cmd.Dir = processInfo.Dir
+	}
+
+	// Set process group for processes so we can kill the entire process tree
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	// Use regular pipes for frontend and other processes
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	processInfo.Process = cmd
+
+	// Start the process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start %s: %w", processInfo.Name, err)
+	}
+
+	o.log(fmt.Sprintf("✅ %s started (PID: %d)", processInfo.Name, cmd.Process.Pid), processInfo.Color)
+
+	// Handle stdout
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.TrimSpace(line) != "" {
+				o.formatLog(processInfo.Name, line, processInfo.Color)
+			}
+		}
+	}()
+
+	// Handle stderr
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.TrimSpace(line) != "" {
+				o.formatLog(processInfo.Name, line, processInfo.Color)
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (o *DevOrchestrator) startProxy() {
+	// Create proxy to backend
+	backendURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", o.backendPort))
+	backendProxy := httputil.NewSingleHostReverseProxy(backendURL)
+
+	// Create proxy to frontend
+	frontendURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", o.frontendPort))
+	frontendProxy := httputil.NewSingleHostReverseProxy(frontendURL)
+
+	// Create HTTP handler
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// Route API requests to backend
+		if path == "/api" || strings.HasPrefix(path, "/api/") {
+			backendProxy.ServeHTTP(w, r)
+			return
+		}
+
+		// Route everything else to frontend
+		frontendProxy.ServeHTTP(w, r)
+	})
+
+	// Start proxy server
+	o.proxyServer = &http.Server{
+		Addr:    fmt.Sprintf(":%d", o.config.Port),
+		Handler: handler,
+	}
+
+	o.log(fmt.Sprintf("✅ Development proxy started on port %d", o.config.Port), "\x1b[36m")
+	if err := o.proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		o.log(fmt.Sprintf("❌ Proxy server error: %v", err), "\x1b[31m")
+	}
+}
+
+func (o *DevOrchestrator) setupGracefulShutdown() {
+	c := make(chan os.Signal, 1)
+	// Capture more signal types to ensure cleanup
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+
+	go func() {
+		sig := <-c
+		o.log(fmt.Sprintf("📡 Received signal: %v", sig), "\x1b[33m")
+		if !o.isShuttingDown {
+			o.isShuttingDown = true
+			o.shutdown()
+		}
+	}()
+}
+
+func (o *DevOrchestrator) shutdown() {
+	o.log("🔄 Shutting down development environment...", "\x1b[33m")
+
+	// Close file watchers first
+	if o.fileWatcher != nil {
+		o.log("🛑 Stopping file watcher...", "\x1b[36m")
+		o.fileWatcher.Close()
+	}
+	if o.configWatcher != nil {
+		o.log("🛑 Stopping config watcher...", "\x1b[36m")
+		o.configWatcher.Close()
+	}
+
+	// Stop our backend process
+	o.backendMutex.Lock()
+	if o.backendProcess != nil {
+		o.stopBackendProcessUnsafe()
+	}
+	o.backendMutex.Unlock()
+
+	// Shutdown proxy server
+	if o.proxyServer != nil {
+		o.log("🛑 Stopping proxy server...", "\x1b[36m")
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := o.proxyServer.Shutdown(ctx); err != nil {
+			o.log("⚠️  Force closing proxy server", "\x1b[33m")
+		}
+	}
+
+	// Channel to track process shutdown completion
+	done := make(chan bool, len(o.processes))
+
+	// Step 1: Try graceful shutdown of remaining processes (frontend)
+	for _, processInfo := range o.processes {
+		if processInfo.Process != nil && processInfo.Process.Process != nil {
+			o.log(fmt.Sprintf("🛑 Stopping %s (PID: %d)...", processInfo.Name, processInfo.Process.Process.Pid), processInfo.Color)
+
+			// Regular process with process group
+			pgid, err := syscall.Getpgid(processInfo.Process.Process.Pid)
+			if err != nil {
+				pgid = processInfo.Process.Process.Pid // fallback to PID if can't get PGID
+			}
+
+			// Try graceful shutdown first - send SIGTERM to the entire process group
+			syscall.Kill(-pgid, syscall.SIGTERM)
+
+			go func(proc *exec.Cmd, name string, processGroupID int) {
+				defer func() { done <- true }()
+
+				// Wait up to 5 seconds for graceful shutdown
+				gracefulDone := make(chan error, 1)
+				go func() {
+					gracefulDone <- proc.Wait()
+				}()
+
+				select {
+				case err := <-gracefulDone:
+					if err != nil {
+						o.log(fmt.Sprintf("⚠️  %s exited with error: %v", name, err), "\x1b[33m")
+					} else {
+						o.log(fmt.Sprintf("✅ %s stopped gracefully", name), "\x1b[32m")
+					}
+				case <-time.After(5 * time.Second):
+					// Force kill the entire process group
+					o.log(fmt.Sprintf("💀 Force killing %s and children (timeout)...", name), "\x1b[31m")
+					syscall.Kill(-processGroupID, syscall.SIGKILL)
+					// Also try individual process kill as fallback
+					if proc.Process != nil {
+						proc.Process.Kill()
+					}
+				}
+			}(processInfo.Process, processInfo.Name, pgid)
+		} else {
+			done <- true // No process to stop
+		}
+	}
+
+	// Wait for all processes to finish or timeout after 10 seconds
+	timeout := time.After(10 * time.Second)
+	processesLeft := len(o.processes)
+
+	for processesLeft > 0 {
+		select {
+		case <-done:
+			processesLeft--
+		case <-timeout:
+			o.log("⚠️  Timeout waiting for processes to stop", "\x1b[33m")
+			processesLeft = 0
+		}
+	}
+
+	// Step 2: Nuclear option - kill anything listening on our ports
+	o.log("🧹 Cleaning up any remaining processes on our ports...", "\x1b[33m")
+	o.forceKillPortProcesses()
+
+	o.log("✅ Development environment stopped", "\x1b[32m")
+
+	// Signal the main thread that shutdown is complete
+	select {
+	case o.shutdownChan <- true:
+	default:
+	}
+}

@@ -2,20 +2,21 @@ package cmd
 
 import (
 	"fmt"
+	"goflux/internal/config"
+	"goflux/internal/typegen/analyzer"
+	"goflux/internal/typegen/generator"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"goflux/internal/typegen/analyzer"
-	"goflux/internal/typegen/generator"
-
 	"github.com/spf13/cobra"
 )
 
 type BuildOrchestrator struct {
-	config *ProjectConfig
+	config *config.ProjectConfig
 	debug  bool
 }
 
@@ -55,13 +56,13 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Read config
-	config, err := readConfig(configPath)
+	cfg, err := config.ReadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read flux.yaml: %w", err)
 	}
 
 	orchestrator := &BuildOrchestrator{
-		config: config,
+		config: cfg,
 		debug:  debug,
 	}
 
@@ -197,6 +198,14 @@ func (b *BuildOrchestrator) installDependencies() error {
 
 func (b *BuildOrchestrator) generateTypes() error {
 	b.log("🔧 Generating TypeScript types from Go...", "\x1b[36m")
+
+	// First, try to generate OpenAPI spec if it doesn't exist
+	if err := b.ensureOpenAPISpec(); err != nil {
+		b.log("⚠️  Warning: Could not generate OpenAPI spec", "\x1b[33m")
+		if b.debug {
+			b.log(fmt.Sprintf("OpenAPI generation error: %v", err), "\x1b[31m")
+		}
+	}
 
 	// Use the new modular type generation system
 	analysis, err := analyzer.AnalyzeProject(".", b.debug)
@@ -537,4 +546,126 @@ func (b *BuildOrchestrator) logBuildSuccess() {
 	fmt.Println()
 	b.log(fmt.Sprintf("🚀 Run with: ./%s", binaryPath), "\x1b[33m")
 	b.log(fmt.Sprintf("🌐 Then visit: http://localhost:%d", b.config.Port), "\x1b[33m")
+}
+
+func (b *BuildOrchestrator) ensureOpenAPISpec() error {
+	b.log("📋 Checking for OpenAPI specification...", "\x1b[36m")
+
+	// Check if OpenAPI spec already exists in common locations
+	possiblePaths := []string{
+		"openapi.json",
+		"build/openapi.json",
+		"docs/openapi.json",
+		"api/openapi.json",
+	}
+
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			b.log("✅ Found existing OpenAPI spec at "+path, "\x1b[32m")
+			fmt.Println()
+			return nil
+		}
+	}
+
+	// No existing spec found, try to generate one
+	b.log("📋 No OpenAPI spec found, generating from server...", "\x1b[36m")
+
+	return b.generateOpenAPIFromServer()
+}
+
+func (b *BuildOrchestrator) generateOpenAPIFromServer() error {
+	// Check if we have a cmd/server directory
+	if _, err := os.Stat("cmd/server/main.go"); os.IsNotExist(err) {
+		return fmt.Errorf("no cmd/server/main.go found, cannot generate OpenAPI spec")
+	}
+
+	b.log("🚀 Starting server temporarily to generate OpenAPI spec...", "\x1b[36m")
+
+	// Build the server first
+	cmd := exec.Command("go", "build", "-o", "temp_server", "./cmd/server")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to build server: %w", err)
+	}
+	defer os.Remove("temp_server") // Clean up
+
+	// Start the server in background
+	serverCmd := exec.Command("./temp_server", "--dev", "--port", fmt.Sprintf("%d", b.config.Port))
+	if err := serverCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start server: %w", err)
+	}
+	defer func() {
+		if serverCmd.Process != nil {
+			serverCmd.Process.Kill()
+			serverCmd.Wait()
+		}
+	}()
+
+	// Wait for server to be ready
+	if err := b.waitForServer(); err != nil {
+		return err
+	}
+
+	// Fetch OpenAPI spec
+	if err := b.fetchOpenAPISpec(); err != nil {
+		return err
+	}
+
+	b.log("✅ OpenAPI spec generated successfully", "\x1b[32m")
+	fmt.Println()
+	return nil
+}
+
+func (b *BuildOrchestrator) waitForServer() error {
+	url := fmt.Sprintf("http://localhost:%d/api/health", b.config.Port)
+
+	for i := 0; i < 30; i++ { // Wait up to 30 seconds
+		time.Sleep(1 * time.Second)
+
+		resp, err := http.Get(url)
+		if err == nil && resp.StatusCode == 200 {
+			resp.Body.Close()
+			b.log("✅ Server is ready", "\x1b[32m")
+			return nil
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
+
+	return fmt.Errorf("server did not become ready within 30 seconds")
+}
+
+func (b *BuildOrchestrator) fetchOpenAPISpec() error {
+	url := fmt.Sprintf("http://localhost:%d/api/openapi.json", b.config.Port)
+
+	b.log("📥 Fetching OpenAPI spec from "+url, "\x1b[36m")
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch OpenAPI spec: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("server returned status %d when fetching OpenAPI spec", resp.StatusCode)
+	}
+
+	// Create build directory if it doesn't exist
+	if err := os.MkdirAll("build", 0755); err != nil {
+		return fmt.Errorf("failed to create build directory: %w", err)
+	}
+
+	// Save to build/openapi.json
+	outFile, err := os.Create("build/openapi.json")
+	if err != nil {
+		return fmt.Errorf("failed to create OpenAPI spec file: %w", err)
+	}
+	defer outFile.Close()
+
+	if _, err := outFile.ReadFrom(resp.Body); err != nil {
+		return fmt.Errorf("failed to save OpenAPI spec: %w", err)
+	}
+
+	b.log("💾 Saved OpenAPI spec to build/openapi.json", "\x1b[36m")
+	return nil
 }
