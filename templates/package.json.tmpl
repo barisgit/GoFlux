@@ -1,0 +1,22 @@
+{
+  "name": "{{.ProjectName}}",
+  "version": "1.0.0",
+  "description": "Full-stack application built with GoFlux",
+  "type": "module",
+  "scripts": {
+    "generate-types": "flux dev --types-only",
+    "build": "flux build",
+    "build:frontend": "cd frontend && pnpm build",
+    "build:static": "tsx scripts/generate-static.ts",
+    "dev": "flux dev",
+    "start": "./dist/server"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 

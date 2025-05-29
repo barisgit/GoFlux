@@ -26,6 +26,7 @@ func main() {
 	// Add commands
 	rootCmd.AddCommand(cmd.NewCmd())
 	rootCmd.AddCommand(cmd.DevCmd())
+	rootCmd.AddCommand(cmd.BuildCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

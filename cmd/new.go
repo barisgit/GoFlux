@@ -18,19 +18,40 @@ type ProjectConfig struct {
 	Name     string         `yaml:"name"`
 	Frontend FrontendConfig `yaml:"frontend"`
 	Backend  BackendConfig  `yaml:"backend"`
+	Build    BuildConfig    `yaml:"build"`
 }
 
 type FrontendConfig struct {
-	Framework  string `yaml:"framework"`
-	InstallCmd string `yaml:"install_cmd"`
-	DevCmd     string `yaml:"dev_cmd"`
-	BuildCmd   string `yaml:"build_cmd"`
-	TypesDir   string `yaml:"types_dir"`
-	LibDir     string `yaml:"lib_dir"`
+	Framework  string          `yaml:"framework"`
+	InstallCmd string          `yaml:"install_cmd"`
+	DevCmd     string          `yaml:"dev_cmd"`
+	BuildCmd   string          `yaml:"build_cmd"`
+	TypesDir   string          `yaml:"types_dir"`
+	LibDir     string          `yaml:"lib_dir"`
+	StaticGen  StaticGenConfig `yaml:"static_gen"`
+}
+
+type StaticGenConfig struct {
+	Enabled     bool     `yaml:"enabled"`
+	BuildSSRCmd string   `yaml:"build_ssr_cmd"`
+	GenerateCmd string   `yaml:"generate_cmd"`
+	Routes      []string `yaml:"routes"`
+	SPARouting  bool     `yaml:"spa_routing"`
 }
 
 type BackendConfig struct {
-	Port string `yaml:"port"`
+	Port   string `yaml:"port"`
+	Router string `yaml:"router"`
+}
+
+type BuildConfig struct {
+	OutputDir   string `yaml:"output_dir"`
+	BinaryName  string `yaml:"binary_name"`
+	EmbedStatic bool   `yaml:"embed_static"`
+	StaticDir   string `yaml:"static_dir"`
+	BuildTags   string `yaml:"build_tags"`
+	LDFlags     string `yaml:"ldflags"`
+	CGOEnabled  bool   `yaml:"cgo_enabled"`
 }
 
 func NewCmd() *cobra.Command {
@@ -73,6 +94,24 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Backend router selection
+	var backendRouter string
+	routerPrompt := &survey.Select{
+		Message: "Choose backend router:",
+		Options: []string{
+			"Chi (Recommended)",
+			"Fiber",
+			"Gin",
+			"Echo",
+			"Go 1.22+ ServeMux",
+			"Gorilla Mux",
+		},
+		Default: "Chi (Recommended)",
+	}
+	if err := survey.AskOne(routerPrompt, &backendRouter); err != nil {
+		return err
+	}
+
 	// Create project directory
 	if err := os.MkdirAll(projectName, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
@@ -84,13 +123,13 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate flux.yaml config
-	config := generateConfig(projectName, frontendFramework)
+	config := generateConfig(projectName, frontendFramework, backendRouter)
 	if err := writeConfig(filepath.Join(projectName, "flux.yaml"), config); err != nil {
 		return err
 	}
 
 	// Create project structure
-	if err := createProjectStructure(projectName, frontendFramework); err != nil {
+	if err := createProjectStructure(projectName, frontendFramework, backendRouter); err != nil {
 		return err
 	}
 
@@ -102,7 +141,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func generateConfig(name, frontend string) ProjectConfig {
+func generateConfig(name, frontend, backend string) ProjectConfig {
 	var frontendConfig FrontendConfig
 
 	switch {
@@ -114,6 +153,13 @@ func generateConfig(name, frontend string) ProjectConfig {
 			BuildCmd:   "cd frontend && pnpm build",
 			TypesDir:   "src/types",
 			LibDir:     "src/lib",
+			StaticGen: StaticGenConfig{
+				Enabled:     false,
+				BuildSSRCmd: "cd frontend && pnpm build:ssr",
+				GenerateCmd: "pnpx tsx scripts/generate-static.ts",
+				Routes:      []string{"/", "/about"},
+				SPARouting:  true,
+			},
 		}
 	case strings.Contains(frontend, "Next.js"):
 		frontendConfig = FrontendConfig{
@@ -123,6 +169,13 @@ func generateConfig(name, frontend string) ProjectConfig {
 			BuildCmd:   "cd frontend && pnpm build",
 			TypesDir:   "src/types",
 			LibDir:     "src/lib",
+			StaticGen: StaticGenConfig{
+				Enabled:     true,
+				BuildSSRCmd: "cd frontend && pnpm build && pnpm export",
+				GenerateCmd: "",
+				Routes:      []string{},
+				SPARouting:  false,
+			},
 		}
 	default: // Vite + React
 		frontendConfig = FrontendConfig{
@@ -132,6 +185,13 @@ func generateConfig(name, frontend string) ProjectConfig {
 			BuildCmd:   "cd frontend && pnpm build",
 			TypesDir:   "src/types",
 			LibDir:     "src/lib",
+			StaticGen: StaticGenConfig{
+				Enabled:     false,
+				BuildSSRCmd: "",
+				GenerateCmd: "",
+				Routes:      []string{},
+				SPARouting:  false,
+			},
 		}
 	}
 
@@ -139,7 +199,17 @@ func generateConfig(name, frontend string) ProjectConfig {
 		Name:     name,
 		Frontend: frontendConfig,
 		Backend: BackendConfig{
-			Port: "3002",
+			Port:   "3002",
+			Router: backend,
+		},
+		Build: BuildConfig{
+			OutputDir:   "dist",
+			BinaryName:  "server",
+			EmbedStatic: true,
+			StaticDir:   "frontend/dist",
+			BuildTags:   "embed_static",
+			LDFlags:     "-s -w",
+			CGOEnabled:  false,
 		},
 	}
 }
@@ -153,11 +223,11 @@ func writeConfig(path string, config ProjectConfig) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func createProjectStructure(projectName, frontend string) error {
+func createProjectStructure(projectName, frontend, backend string) error {
 	fmt.Printf("📦 Generating project from templates...\n")
 
 	// Use template system to generate the base project structure
-	if err := templates.GenerateProject(projectName, projectName); err != nil {
+	if err := templates.GenerateProject(projectName, projectName, backend); err != nil {
 		return fmt.Errorf("failed to generate project from templates: %w", err)
 	}
 

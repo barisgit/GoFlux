@@ -8,10 +8,27 @@ import (
 	"{{.ModuleName}}/internal/db"
 
 	"github.com/danielgtaylor/huma/v2"
+	{{if eq .Router "Chi (Recommended)"}}
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
-	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	{{else if eq .Router "Fiber"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
+	"github.com/gofiber/fiber/v2"
+	{{else if eq .Router "Gin"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humagin"
+	"github.com/gin-gonic/gin"
+	{{else if eq .Router "Echo"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humaecho"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	{{else if eq .Router "Go 1.22+ ServeMux"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	{{else if eq .Router "Gorilla Mux"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humamux"
+	"github.com/gorilla/mux"
+	{{end}}
+	"github.com/danielgtaylor/huma/v2/humacli"
 
 	// Import CBOR support for binary content negotiation
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
@@ -21,6 +38,7 @@ import (
 type Options struct {
 	Port int `help:"Port to listen on" short:"p" default:"{{.BackendPort}}"`
 	Host string `help:"Host to bind to" default:"127.0.0.1"`
+	Dev  bool   `help:"Development mode (disables static file serving)" default:"false"`
 }
 
 // HealthOutput represents the health check response
@@ -35,6 +53,7 @@ type HealthOutput struct {
 func main() {
 	// Create a CLI app with port and host options
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
+		{{if eq .Router "Chi (Recommended)"}}
 		// Create a new Chi router
 		router := chi.NewMux()
 
@@ -59,6 +78,89 @@ func main() {
 				next.ServeHTTP(w, r)
 			})
 		})
+		{{else if eq .Router "Fiber"}}
+		// Create a new Fiber app
+		app := fiber.New()
+
+		// Add middleware
+		app.Use(func(c *fiber.Ctx) error {
+			// CORS middleware
+			c.Set("Access-Control-Allow-Origin", "*")
+			c.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			
+			if c.Method() == "OPTIONS" {
+				return c.SendStatus(fiber.StatusOK)
+			}
+			
+			return c.Next()
+		})
+		{{else if eq .Router "Gin"}}
+		// Create a new Gin router
+		gin.SetMode(gin.ReleaseMode)
+		router := gin.New()
+		router.Use(gin.Logger())
+		router.Use(gin.Recovery())
+
+		// CORS middleware
+		router.Use(func(c *gin.Context) {
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(http.StatusOK)
+				return
+			}
+			
+			c.Next()
+		})
+		{{else if eq .Router "Echo"}}
+		// Create a new Echo router
+		router := echo.New()
+
+		// Add middleware
+		router.Use(middleware.Logger())
+		router.Use(middleware.Recover())
+		router.Use(middleware.RequestID())
+
+		// CORS middleware
+		router.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				c.Response().Header().Set("Access-Control-Allow-Origin", "*")
+				c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				
+				if c.Request().Method == "OPTIONS" {
+					return c.NoContent(http.StatusOK)
+				}
+				
+				return next(c)
+			}
+		})
+		{{else if eq .Router "Go 1.22+ ServeMux"}}
+		// Create a new Go ServeMux router
+		router := http.NewServeMux()
+		{{else if eq .Router "Gorilla Mux"}}
+		// Create a new Gorilla Mux router
+		router := mux.NewRouter()
+
+		// CORS middleware
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				
+				next.ServeHTTP(w, r)
+			})
+		})
+		{{end}}
 
 		// Create Huma API with OpenAPI configuration
 		config := huma.DefaultConfig("{{.ProjectName}} API", "1.0.0")
@@ -67,7 +169,19 @@ func main() {
 			{URL: fmt.Sprintf("http://%s:%d", options.Host, options.Port)},
 		}
 		
+		{{if eq .Router "Chi (Recommended)"}}
 		humaAPI := humachi.New(router, config)
+		{{else if eq .Router "Fiber"}}
+		humaAPI := humafiber.New(app, config)
+		{{else if eq .Router "Gin"}}
+		humaAPI := humagin.New(router, config)
+		{{else if eq .Router "Echo"}}
+		humaAPI := humaecho.New(router, config)
+		{{else if eq .Router "Go 1.22+ ServeMux"}}
+		humaAPI := humago.New(router, config)
+		{{else if eq .Router "Gorilla Mux"}}
+		humaAPI := humamux.New(router, config)
+		{{end}}
 
 		// Register health check endpoint
 		huma.Register(humaAPI, huma.Operation{
@@ -83,13 +197,61 @@ func main() {
 			resp.Body.Message = "{{.ProjectName}} server is running!"
 			resp.Body.Version = "1.0.0"
 			return resp, nil
-	})
+		})
 
-	// Initialize database (mock database for demo)
-	database := db.NewMockDB()
+		// Initialize database (mock database for demo)
+		database := db.NewMockDB()
 
-	// Setup API routes
+		// Setup API routes
 		apiinternal.SetupRoutes(humaAPI, database)
+
+		{{if eq .Router "Chi (Recommended)"}}
+		// Serve static files (frontend assets) - handled by GoFlux CLI
+		// Only in production mode, development uses proxy
+		if !options.Dev {
+			router.Handle("/*", getEmbeddedStaticHandler())
+		}
+		{{else if eq .Router "Fiber"}}
+		// Serve static files (frontend assets) - handled by GoFlux CLI  
+		// Only in production mode, development uses proxy
+		if !options.Dev {
+			app.Use("/*", func(c *fiber.Ctx) error {
+				getEmbeddedStaticHandler().ServeHTTP(c.Response().BodyWriter(), c.Request())
+				return nil
+			})
+		}
+		{{else if eq .Router "Gin"}}
+		// Serve static files (frontend assets) - handled by GoFlux CLI
+		// Only in production mode, development uses proxy
+		if !options.Dev {
+			router.NoRoute(func(c *gin.Context) {
+				getEmbeddedStaticHandler().ServeHTTP(c.Writer, c.Request)
+			})
+		}
+		{{else if eq .Router "Echo"}}
+		// Serve static files (frontend assets) - handled by GoFlux CLI
+		// Only in production mode, development uses proxy
+		if !options.Dev {
+			router.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					getEmbeddedStaticHandler().ServeHTTP(c.Response().Writer, c.Request())
+					return nil
+				}
+			})
+		}
+		{{else if eq .Router "Go 1.22+ ServeMux"}}
+		// Serve static files (frontend assets) - handled by GoFlux CLI
+		// Only in production mode, development uses proxy
+		if !options.Dev {
+			router.Handle("/", getEmbeddedStaticHandler())
+		}
+		{{else if eq .Router "Gorilla Mux"}}
+		// Serve static files (frontend assets) - handled by GoFlux CLI
+		// Only in production mode, development uses proxy
+		if !options.Dev {
+			router.PathPrefix("/").Handler(getEmbeddedStaticHandler())
+		}
+		{{end}}
 
 		// Tell the CLI how to start your server
 		hooks.OnStart(func() {
@@ -98,14 +260,24 @@ func main() {
 			fmt.Printf("📚 API documentation available at http://%s/docs\n", addr)
 			fmt.Printf("📋 OpenAPI spec available at http://%s/openapi.json\n", addr)
 			
+			{{if eq .Router "Fiber"}}
+			if err := app.Listen(addr); err != nil {
+				panic(fmt.Sprintf("Failed to start server: %v", err))
+			}
+			{{else}}
 			server := &http.Server{
 				Addr:    addr,
-				Handler: router,
+				{{if eq .Router "Chi (Recommended)"}}Handler: router,{{end}}
+				{{if eq .Router "Gin"}}Handler: router,{{end}}
+				{{if eq .Router "Echo"}}Handler: router,{{end}}
+				{{if eq .Router "Go 1.22+ ServeMux"}}Handler: router,{{end}}
+				{{if eq .Router "Gorilla Mux"}}Handler: router,{{end}}
 			}
 			
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				panic(fmt.Sprintf("Failed to start server: %v", err))
 			}
+			{{end}}
 		})
 	})
 

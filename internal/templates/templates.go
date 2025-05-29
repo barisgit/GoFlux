@@ -14,15 +14,17 @@ type TemplateData struct {
 	ModuleName  string
 	GoVersion   string
 	BackendPort string
+	Router      string
 }
 
 // GenerateProject creates a new project from templates
-func GenerateProject(projectPath, projectName string) error {
+func GenerateProject(projectPath, projectName, router string) error {
 	data := TemplateData{
 		ProjectName: projectName,
 		ModuleName:  projectName,
 		GoVersion:   "1.24.2",
 		BackendPort: "3002",
+		Router:      router,
 	}
 
 	// Get the path to templates directory relative to the CLI

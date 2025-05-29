@@ -21,6 +21,7 @@ import (
 
 	"goflux/internal/typegen/generator"
 
+	"github.com/creack/pty"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -228,46 +229,71 @@ func (o *DevOrchestrator) startProcess(processInfo *ProcessInfo) error {
 		cmd.Dir = processInfo.Dir
 	}
 
-	// Create pipes for stdout and stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	processInfo.Process = cmd
-
-	// Start the process
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start %s: %w", processInfo.Name, err)
-	}
-
-	o.log(fmt.Sprintf("✅ %s started (PID: %d)", processInfo.Name, cmd.Process.Pid), processInfo.Color)
-
-	// Handle stdout
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.TrimSpace(line) != "" {
-				o.formatLog(processInfo.Name, line, processInfo.Color)
-			}
+	// Use PTY for backend to preserve colors, regular pipes for frontend
+	if processInfo.Name == "Backend" {
+		// Start the process with a PTY to preserve colors
+		ptmx, err := pty.Start(cmd)
+		if err != nil {
+			return fmt.Errorf("failed to start %s with PTY: %w", processInfo.Name, err)
 		}
-	}()
 
-	// Handle stderr
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.TrimSpace(line) != "" {
-				o.formatLog(processInfo.Name, line, processInfo.Color)
+		processInfo.Process = cmd
+
+		o.log(fmt.Sprintf("✅ %s started (PID: %d)", processInfo.Name, cmd.Process.Pid), processInfo.Color)
+
+		// Handle PTY output
+		go func() {
+			defer ptmx.Close()
+			scanner := bufio.NewScanner(ptmx)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.TrimSpace(line) != "" {
+					o.formatLog(processInfo.Name, line, processInfo.Color)
+				}
 			}
+		}()
+	} else {
+		// Use regular pipes for frontend and other processes
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
 		}
-	}()
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+
+		processInfo.Process = cmd
+
+		// Start the process
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to start %s: %w", processInfo.Name, err)
+		}
+
+		o.log(fmt.Sprintf("✅ %s started (PID: %d)", processInfo.Name, cmd.Process.Pid), processInfo.Color)
+
+		// Handle stdout
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.TrimSpace(line) != "" {
+					o.formatLog(processInfo.Name, line, processInfo.Color)
+				}
+			}
+		}()
+
+		// Handle stderr
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.TrimSpace(line) != "" {
+					o.formatLog(processInfo.Name, line, processInfo.Color)
+				}
+			}
+		}()
+	}
 
 	return nil
 }
@@ -293,6 +319,13 @@ func (o *DevOrchestrator) formatLog(processName, line, color string) {
 			o.log(fmt.Sprintf("⚡ Frontend: %s", line), color)
 		}
 	} else if processName == "Backend" {
+		// Check if this is a Huma-style log (contains HTTP request info)
+		if o.isHumaLog(line) {
+			// Pass Huma logs through directly to preserve their native formatting and colors
+			fmt.Println(line)
+			return
+		}
+
 		// Show HTTP request logs (contain | separators for Fiber logs) - keep native format
 		if strings.Count(line, "|") >= 4 {
 			o.formatHttpLog(line)
@@ -318,6 +351,40 @@ func (o *DevOrchestrator) formatLog(processName, line, color string) {
 			o.log(fmt.Sprintf("%s: %s", processName, line), color)
 		}
 	}
+}
+
+// isHumaLog detects if a log line is from Huma based on its characteristic format
+func (o *DevOrchestrator) isHumaLog(line string) bool {
+	// Huma logs typically contain:
+	// - A timestamp in format "2006/01/02 15:04:05"
+	// - HTTP method and URL in quotes
+	// - "from" keyword
+	// - Status code, size, and duration
+
+	// Check for characteristic Huma log patterns
+	if strings.Contains(line, "\"GET ") ||
+		strings.Contains(line, "\"POST ") ||
+		strings.Contains(line, "\"PUT ") ||
+		strings.Contains(line, "\"DELETE ") ||
+		strings.Contains(line, "\"PATCH ") ||
+		strings.Contains(line, "\"HEAD ") ||
+		strings.Contains(line, "\"OPTIONS ") {
+
+		// Additional validation: check for "from" and typical status/timing pattern
+		if strings.Contains(line, " from ") &&
+			(strings.Contains(line, " - ") || strings.Contains(line, " in ")) {
+			return true
+		}
+	}
+
+	// Also check for Huma startup messages
+	if strings.Contains(line, "server starting on") ||
+		strings.Contains(line, "API documentation available") ||
+		strings.Contains(line, "OpenAPI spec available") {
+		return true
+	}
+
+	return false
 }
 
 func (o *DevOrchestrator) formatHttpLog(line string) {
