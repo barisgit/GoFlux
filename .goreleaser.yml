@@ -95,21 +95,21 @@ brews:
       system "#{bin}/flux", "--version"
 
 # Chocolatey package for Windows
-chocolateys:
-  - name: goflux
-    title: GoFlux CLI
-    authors: Baris Git
-    project_url: https://github.com/barisgit/goflux
-    license_url: https://github.com/barisgit/goflux/blob/main/LICENSE
-    require_license_acceptance: false
-    project_source_url: https://github.com/barisgit/goflux
-    docs_url: https://github.com/barisgit/goflux/blob/main/README.md
-    bug_tracker_url: https://github.com/barisgit/goflux/issues
-    tags: "go golang typescript fullstack cli framework"
-    summary: The fastest way to build full-stack applications with Go + TypeScript
-    description: |
-      GoFlux is a CLI and a micro-framework that creates and manages full-stack projects with Go backend and modern TypeScript frontend frameworks.
-    release_notes: "https://github.com/barisgit/goflux/releases/tag/v{{ .Version }}"
+# chocolateys:
+#   - name: goflux
+#     title: GoFlux CLI
+#     authors: Baris Git
+#     project_url: https://github.com/barisgit/goflux
+#     license_url: https://github.com/barisgit/goflux/blob/main/LICENSE
+#     require_license_acceptance: false
+#     project_source_url: https://github.com/barisgit/goflux
+#     docs_url: https://github.com/barisgit/goflux/blob/main/README.md
+#     bug_tracker_url: https://github.com/barisgit/goflux/issues
+#     tags: "go golang typescript fullstack cli framework"
+#     summary: The fastest way to build full-stack applications with Go + TypeScript
+#     description: |
+#       GoFlux is a CLI and a micro-framework that creates and manages full-stack projects with Go backend and modern TypeScript frontend frameworks.
+#     release_notes: "https://github.com/barisgit/goflux/releases/tag/v{{ .Version }}"
 
 # Scoop package for Windows
 scoops:
