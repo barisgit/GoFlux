@@ -18,6 +18,7 @@ These are pre-configured templates built into GoFlux for popular frontend framew
 ### Usage
 
 **Interactive:**
+
 ```bash
 flux new my-app
 # Choose "Hardcoded Template (Built-in)"
@@ -25,11 +26,13 @@ flux new my-app
 ```
 
 **Command Line:**
+
 ```bash
 flux new my-app --template hardcoded --template-source tanstack-router
 ```
 
 **Configuration:**
+
 ```yaml
 frontend:
   framework: tanstack-router
@@ -52,6 +55,7 @@ Use existing package managers' create scripts to generate your frontend.
 ### Usage
 
 **Interactive:**
+
 ```bash
 flux new my-app
 # Choose "Script Template (pnpx/npm create)"
@@ -59,11 +63,13 @@ flux new my-app
 ```
 
 **Command Line:**
+
 ```bash
 flux new my-app --template script --template-source "pnpm create vue@latest . --typescript"
 ```
 
 **Configuration:**
+
 ```yaml
 frontend:
   framework: vue-custom
@@ -91,6 +97,7 @@ Run any custom command to generate your frontend.
 ### Usage
 
 **Interactive:**
+
 ```bash
 flux new my-app
 # Choose "Custom Command"
@@ -99,11 +106,13 @@ flux new my-app
 ```
 
 **Command Line:**
+
 ```bash
 flux new my-app --template custom --template-source "my-custom-setup.sh {{project_name}}"
 ```
 
 **Configuration:**
+
 ```yaml
 frontend:
   framework: custom
@@ -165,17 +174,20 @@ files:
 Templates have access to these variables:
 
 **Built-in:**
+
 - `{{ProjectName}}`: Project name
 - `{{project_name}}`: Project name (lowercase)
 - `{{PROJECT_NAME}}`: Project name (uppercase)
 
 **Custom:**
+
 - Any variables defined in the `variables` section
 - Any variables passed via the `vars` configuration
 
 ### Usage
 
 **Interactive:**
+
 ```bash
 flux new my-app
 # Choose "Remote Template (GitHub/Local)"
@@ -185,6 +197,7 @@ flux new my-app
 ```
 
 **Command Line:**
+
 ```bash
 # GitHub repository
 flux new my-app --template remote --template-source "https://github.com/user/my-template"
@@ -194,6 +207,7 @@ flux new my-app --template remote --template-source "/path/to/my/template"
 ```
 
 **Configuration:**
+
 ```yaml
 frontend:
   framework: remote-template
@@ -232,6 +246,7 @@ frontend:
 ### Complete flux.yaml Examples
 
 **TanStack Router (Hardcoded):**
+
 ```yaml
 name: my-app
 frontend:
@@ -244,6 +259,7 @@ frontend:
 ```
 
 **Vue with Custom Script:**
+
 ```yaml
 name: my-app
 frontend:
@@ -256,6 +272,7 @@ frontend:
 ```
 
 **Remote GitHub Template:**
+
 ```yaml
 name: my-app
 frontend:
@@ -277,6 +294,7 @@ frontend:
 1. **Create a new repository or directory**
 
 2. **Add flux-template.yaml:**
+
 ```yaml
 name: "My Awesome Template"
 description: "Custom frontend template with special sauce"
@@ -295,7 +313,8 @@ variables:
 ```
 
 3. **Add your template files:**
-```
+
+```text
 my-template/
 ├── flux-template.yaml
 ├── package.json.tmpl
@@ -309,6 +328,7 @@ my-template/
 ```
 
 4. **Use Go template syntax in .tmpl files:**
+
 ```json
 // package.json.tmpl
 {
@@ -319,11 +339,13 @@ my-template/
 ```
 
 5. **Test your template:**
+
 ```bash
 flux new test-app --template remote --template-source "./my-template"
 ```
 
 6. **Publish and use:**
+
 ```bash
 # Push to GitHub
 git remote add origin https://github.com/user/my-template
@@ -367,21 +389,25 @@ frontend:
 ## Troubleshooting
 
 ### Template Not Found
+
 - Verify the URL or path is correct
 - Check if `flux-template.yaml` exists in the template
 - Ensure you have network access for remote templates
 
 ### Template Variables Not Working
+
 - Check variable names match exactly (case-sensitive)
 - Verify `.tmpl` files use correct Go template syntax
 - Use `--debug` flag to see template processing details
 
 ### Caching Issues
+
 - Clear cache: `rm -rf ~/.flux/templates/`
 - Disable caching: set `cache: false` in template config
 - Force refresh by changing the version
 
 ### Permission Errors
+
 - Ensure write permissions in project directory
 - Check if template files have correct permissions
 - For local templates, verify directory access
@@ -397,6 +423,7 @@ If you have existing projects using the old `install_cmd` system, they will cont
 To migrate, update your `flux.yaml`:
 
 **Before:**
+
 ```yaml
 frontend:
   framework: tanstack-router
@@ -404,6 +431,7 @@ frontend:
 ```
 
 **After:**
+
 ```yaml
 frontend:
   framework: tanstack-router
@@ -412,4 +440,4 @@ frontend:
     source: tanstack-router
 ```
 
-This provides better IDE support, validation, and additional features while maintaining backward compatibility. 
+This provides better IDE support, validation, and additional features while maintaining backward compatibility.
