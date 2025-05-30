@@ -32,6 +32,7 @@ func main() {
 	rootCmd.AddCommand(cmd.DevCmd())
 	rootCmd.AddCommand(cmd.BuildCmd())
 	rootCmd.AddCommand(cmd.GenerateTypesCmd())
+	rootCmd.AddCommand(cmd.ConfigCmd())
 	rootCmd.AddCommand(cmd.ListCmd())
 
 	if err := rootCmd.Execute(); err != nil {

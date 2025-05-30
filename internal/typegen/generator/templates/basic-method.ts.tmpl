@@ -1,0 +1,9 @@
+{{if .Description}}/**
+ * {{.Description}}
+ */{{end}}
+async ({{.ParameterSignature}}): Promise<ApiResult<{{.ResponseType}}>> => {
+{{if .HasBodyData}}  return request<{{.ResponseType}}>(`{{.RequestPath}}`, {
+    method: '{{.Method}}',
+    body: JSON.stringify({{.DataParameter}}),
+  }){{else}}{{if eq .Method "GET"}}  return request<{{.ResponseType}}>(`{{.RequestPath}}`){{else}}  return request<{{.ResponseType}}>(`{{.RequestPath}}`, { method: '{{.Method}}' }){{end}}{{end}}
+} 

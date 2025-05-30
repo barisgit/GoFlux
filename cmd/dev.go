@@ -36,16 +36,19 @@ func runDev(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Check if we're in a GoFlux project
-	configPath := "flux.yaml"
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return fmt.Errorf("flux.yaml not found. Are you in a GoFlux project directory?\nRun 'flux new <project-name>' to create a new project")
-	}
+	// Load configuration using enhanced system
+	cm := config.NewConfigManager(config.ConfigLoadOptions{
+		Path:              "flux.yaml",
+		AllowMissing:      false,
+		ValidateStructure: true,
+		ApplyDefaults:     true,
+		WarnOnDeprecated:  !debug, // Only show warnings if not in debug mode
+		Quiet:             false,
+	})
 
-	// Read config
-	cfg, err := config.ReadConfig(configPath)
+	cfg, err := cm.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("failed to read flux.yaml: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	// Create and start orchestrator

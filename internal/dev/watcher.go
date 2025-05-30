@@ -177,10 +177,20 @@ func (o *DevOrchestrator) handleConfigEvents() {
 					go func() {
 						o.log("⚙️  flux.yaml changed, reloading configuration...", "\x1b[33m")
 
-						// Read new config
-						newConfig, err := config.ReadConfig("flux.yaml")
+						// Use enhanced config loading with validation
+						cm := config.NewConfigManager(config.ConfigLoadOptions{
+							Path:              "flux.yaml",
+							AllowMissing:      false,
+							ValidateStructure: true,
+							ApplyDefaults:     true,
+							WarnOnDeprecated:  false, // Don't show warnings during hot reload
+							Quiet:             false,
+						})
+
+						newConfig, err := cm.LoadConfig()
 						if err != nil {
 							o.log(fmt.Sprintf("❌ Failed to reload config: %v", err), "\x1b[31m")
+							o.log("💡 Please check your flux.yaml syntax and fix any errors", "\x1b[36m")
 							return
 						}
 

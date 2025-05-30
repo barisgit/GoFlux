@@ -39,14 +39,6 @@ func runGenerateTypes(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Check if we're in a GoFlux project
-	configPath := "flux.yaml"
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if !quiet {
-			fmt.Println("⚠️  flux.yaml not found. Attempting type generation anyway...")
-		}
-	}
-
 	return generateTypes(debug, quiet)
 }
 
@@ -55,8 +47,17 @@ func generateTypes(debug, quiet bool) error {
 		log("🔧 Generating API types...", "\x1b[36m")
 	}
 
-	// Read project configuration
-	projectConfig, err := config.ReadConfig("flux.yaml")
+	// Load configuration using enhanced system with fallback to defaults
+	cm := config.NewConfigManager(config.ConfigLoadOptions{
+		Path:              "flux.yaml",
+		AllowMissing:      true,  // Allow missing for type generation
+		ValidateStructure: false, // Don't validate during type generation
+		ApplyDefaults:     true,
+		WarnOnDeprecated:  false,
+		Quiet:             quiet,
+	})
+
+	projectConfig, err := cm.LoadConfig()
 	if err != nil {
 		if !quiet {
 			log("⚠️  Warning: Could not read flux.yaml, using defaults", "\x1b[33m")
@@ -64,10 +65,9 @@ func generateTypes(debug, quiet bool) error {
 				log(fmt.Sprintf("Config read error: %v", err), "\x1b[33m")
 			}
 		}
-		// Use defaults if config file doesn't exist
-		defaultAPIConfig := config.GetDefaultAPIClientConfig()
+		// Use defaults if config file doesn't exist or is invalid
 		projectConfig = &config.ProjectConfig{
-			APIClient: defaultAPIConfig,
+			APIClient: config.GetDefaultAPIClientConfig(),
 		}
 	}
 
@@ -126,11 +126,9 @@ func generateTypes(debug, quiet bool) error {
 	}
 
 	if !quiet {
-		log("✅ API types generated successfully", "\x1b[32m")
-		log(fmt.Sprintf("Generated %d TypeScript types", len(analysis.TypeDefs)), "\x1b[36m")
-		log(fmt.Sprintf("Generated API client with %d routes", len(analysis.Routes)), "\x1b[36m")
-		if projectConfig.APIClient.Generator != "basic" {
-			log(fmt.Sprintf("Using %s generator", projectConfig.APIClient.Generator), "\x1b[36m")
+		log("✅ Type generation completed successfully", "\x1b[32m")
+		if debug {
+			log(fmt.Sprintf("Generated %d routes and %d types", len(analysis.Routes), len(analysis.TypeDefs)), "\x1b[36m")
 		}
 	}
 

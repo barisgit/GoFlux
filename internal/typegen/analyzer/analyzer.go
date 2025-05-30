@@ -176,7 +176,7 @@ func parseOpenAPISpec(spec *OpenAPISpec, debug bool) *types.APIAnalysis {
 				Method:      method,
 				Path:        path,
 				Handler:     operation.OperationID,
-				Description: operation.Summary,
+				Description: buildRouteDescription(operation),
 			}
 
 			// Extract request type from requestBody
@@ -396,4 +396,45 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// buildRouteDescription builds a comprehensive route description using OpenAPI details
+func buildRouteDescription(operation *Operation) string {
+	var description strings.Builder
+
+	// Use the primary description or summary
+	if operation.Description != "" {
+		description.WriteString(operation.Description)
+	} else if operation.Summary != "" {
+		description.WriteString(operation.Summary)
+	}
+
+	// Add parameter descriptions
+	if len(operation.Parameters) > 0 {
+		var paramDescs []string
+		for _, param := range operation.Parameters {
+			if param.Description != "" {
+				paramDescs = append(paramDescs, fmt.Sprintf("%s: %s", param.Name, param.Description))
+			}
+		}
+		if len(paramDescs) > 0 {
+			if description.Len() > 0 {
+				description.WriteString("\n\n")
+			}
+			description.WriteString("Parameters:\n")
+			for _, desc := range paramDescs {
+				description.WriteString(fmt.Sprintf("- %s\n", desc))
+			}
+		}
+	}
+
+	// Add request body description
+	if operation.RequestBody != nil && operation.RequestBody.Description != "" {
+		if description.Len() > 0 {
+			description.WriteString("\n\n")
+		}
+		description.WriteString(fmt.Sprintf("Request: %s", operation.RequestBody.Description))
+	}
+
+	return strings.TrimSpace(description.String())
 }

@@ -25,6 +25,18 @@ var axiosClientTemplate string
 //go:embed templates/trpc-like-client.ts.tmpl
 var trpcLikeClientTemplate string
 
+//go:embed templates/basic-method.ts.tmpl
+var basicMethodTemplate string
+
+//go:embed templates/axios-method.ts.tmpl
+var axiosMethodTemplate string
+
+//go:embed templates/trpc-get-method.ts.tmpl
+var trpcGetMethodTemplate string
+
+//go:embed templates/trpc-mutation-method.ts.tmpl
+var trpcMutationMethodTemplate string
+
 // Template data structures
 type ClientTemplateData struct {
 	UsedTypes         []string
@@ -33,6 +45,25 @@ type ClientTemplateData struct {
 	ReactQueryEnabled bool
 	QueryKeysEnabled  bool
 	QueryKeys         string
+}
+
+// MethodTemplateData contains data for individual method templates
+type MethodTemplateData struct {
+	Description                    string
+	Method                         string
+	MethodLower                    string
+	ParameterSignature             string
+	QueryParameterSignature        string
+	QueryOptionsParameterSignature string
+	ResponseType                   string
+	RequestPath                    string
+	RequestPathForMutation         string // For React Query mutations with different variable substitution
+	HasIDParam                     bool
+	HasBodyData                    bool
+	DataParameter                  string
+	QueryKey                       string
+	MutationVariableType           string
+	ReactQueryEnabled              bool
 }
 
 // GenerateTypeScriptTypes generates TypeScript type definitions
@@ -273,9 +304,64 @@ func generateNestedObject(content *strings.Builder, nested types.NestedAPI, inde
 
 		switch v := value.(type) {
 		case types.APIMethod:
-			// Generate method implementation
-			content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
-			generateMethodImplementation(content, v, indent)
+			// Generate the method code first to extract docstring
+			templateData := createMethodTemplateData(v, "basic", false)
+			methodCode, err := executeMethodTemplate(basicMethodTemplate, templateData)
+
+			if err != nil {
+				// Fallback to original approach without docstring extraction
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+				generateMethodImplementationLegacy(content, v, indent)
+			} else {
+				// Extract docstring and method body separately
+				lines := strings.Split(methodCode, "\n")
+				var docstringLines []string
+				var methodBodyLines []string
+				inDocstring := false
+
+				for _, line := range lines {
+					trimmedLine := strings.TrimSpace(line)
+					if strings.HasPrefix(trimmedLine, "/**") {
+						inDocstring = true
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring && strings.HasSuffix(trimmedLine, "*/") {
+						inDocstring = false
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring {
+						docstringLines = append(docstringLines, line)
+					} else {
+						methodBodyLines = append(methodBodyLines, line)
+					}
+				}
+
+				// Write docstring first (with proper indentation)
+				if len(docstringLines) > 0 {
+					for _, line := range docstringLines {
+						if line != "" {
+							content.WriteString(indentStr)
+						}
+						content.WriteString(line)
+						content.WriteString("\n")
+					}
+				}
+
+				// Write property name and method body
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+
+				// Write method body (skip empty first line if it exists)
+				for j, line := range methodBodyLines {
+					if j == 0 && strings.TrimSpace(line) == "" {
+						continue
+					}
+					if j > 0 && line != "" {
+						content.WriteString(indentStr)
+					}
+					content.WriteString(line)
+					if j < len(methodBodyLines)-1 {
+						content.WriteString("\n")
+					}
+				}
+			}
 		case types.NestedAPI:
 			// Generate nested object
 			content.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, quotedKey))
@@ -291,6 +377,33 @@ func generateNestedObject(content *strings.Builder, nested types.NestedAPI, inde
 }
 
 func generateMethodImplementation(content *strings.Builder, method types.APIMethod, indent int) {
+	// Create method template data
+	templateData := createMethodTemplateData(method, "basic", false)
+
+	// Execute the basic method template
+	methodCode, err := executeMethodTemplate(basicMethodTemplate, templateData)
+	if err != nil {
+		// Fallback to original implementation if template fails
+		generateMethodImplementationLegacy(content, method, indent)
+		return
+	}
+
+	// Apply proper indentation to each line
+	indentStr := strings.Repeat("  ", indent)
+	lines := strings.Split(methodCode, "\n")
+	for i, line := range lines {
+		if i > 0 && line != "" {
+			content.WriteString(indentStr)
+		}
+		content.WriteString(line)
+		if i < len(lines)-1 {
+			content.WriteString("\n")
+		}
+	}
+}
+
+// generateMethodImplementationLegacy is the original implementation as fallback
+func generateMethodImplementationLegacy(content *strings.Builder, method types.APIMethod, indent int) {
 	route := method.Route
 	routePath := route.Path[4:] // Remove "/api" prefix
 
@@ -588,11 +701,75 @@ func generateTRPCNestedObject(content *strings.Builder, nested types.NestedAPI, 
 
 		switch v := value.(type) {
 		case types.APIMethod:
-			content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
-			if config.ReactQuery.Enabled {
-				generateTRPCMethodWithReactQuery(content, v, indent)
+			// Generate the method code first to extract docstring
+			var methodCode string
+			var err error
+
+			templateData := createMethodTemplateData(v, "trpc-like", config.ReactQuery.Enabled)
+
+			if v.Route.Method == "GET" {
+				methodCode, err = executeMethodTemplate(trpcGetMethodTemplate, templateData)
 			} else {
-				generateTRPCMethodImplementation(content, v, indent)
+				methodCode, err = executeMethodTemplate(trpcMutationMethodTemplate, templateData)
+			}
+
+			if err != nil {
+				// Fallback to original approach without docstring extraction
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+				if config.ReactQuery.Enabled {
+					generateTRPCMethodWithReactQueryLegacy(content, v, indent)
+				} else {
+					generateTRPCMethodImplementationLegacy(content, v, indent)
+				}
+			} else {
+				// Extract docstring and method body separately
+				lines := strings.Split(methodCode, "\n")
+				var docstringLines []string
+				var methodBodyLines []string
+				inDocstring := false
+
+				for _, line := range lines {
+					trimmedLine := strings.TrimSpace(line)
+					if strings.HasPrefix(trimmedLine, "/**") {
+						inDocstring = true
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring && strings.HasSuffix(trimmedLine, "*/") {
+						inDocstring = false
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring {
+						docstringLines = append(docstringLines, line)
+					} else {
+						methodBodyLines = append(methodBodyLines, line)
+					}
+				}
+
+				// Write docstring first (with proper indentation)
+				if len(docstringLines) > 0 {
+					for _, line := range docstringLines {
+						if line != "" {
+							content.WriteString(indentStr)
+						}
+						content.WriteString(line)
+						content.WriteString("\n")
+					}
+				}
+
+				// Write property name and method body
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+
+				// Write method body (skip empty first line if it exists)
+				for j, line := range methodBodyLines {
+					if j == 0 && strings.TrimSpace(line) == "" {
+						continue
+					}
+					if j > 0 && line != "" {
+						content.WriteString(indentStr)
+					}
+					content.WriteString(line)
+					if j < len(methodBodyLines)-1 {
+						content.WriteString("\n")
+					}
+				}
 			}
 		case types.NestedAPI:
 			content.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, quotedKey))
@@ -609,6 +786,41 @@ func generateTRPCNestedObject(content *strings.Builder, nested types.NestedAPI, 
 
 // generateTRPCMethodImplementation generates basic tRPC method without React Query
 func generateTRPCMethodImplementation(content *strings.Builder, method types.APIMethod, indent int) {
+	// Create method template data
+	templateData := createMethodTemplateData(method, "trpc-like", false)
+
+	// For basic tRPC methods, use simple template or execute inline
+	var methodCode string
+	var err error
+
+	if method.Route.Method == "GET" {
+		methodCode, err = executeMethodTemplate(trpcGetMethodTemplate, templateData)
+	} else {
+		methodCode, err = executeMethodTemplate(trpcMutationMethodTemplate, templateData)
+	}
+
+	if err != nil {
+		// Fallback to original implementation if template fails
+		generateTRPCMethodImplementationLegacy(content, method, indent)
+		return
+	}
+
+	// Apply proper indentation to each line
+	indentStr := strings.Repeat("  ", indent)
+	lines := strings.Split(methodCode, "\n")
+	for i, line := range lines {
+		if i > 0 && line != "" {
+			content.WriteString(indentStr)
+		}
+		content.WriteString(line)
+		if i < len(lines)-1 {
+			content.WriteString("\n")
+		}
+	}
+}
+
+// generateTRPCMethodImplementationLegacy is the original implementation as fallback
+func generateTRPCMethodImplementationLegacy(content *strings.Builder, method types.APIMethod, indent int) {
 	route := method.Route
 	routePath := route.Path[4:] // Remove "/api" prefix
 
@@ -665,6 +877,40 @@ func generateTRPCMethodImplementation(content *strings.Builder, method types.API
 
 // generateTRPCMethodWithReactQuery generates tRPC method with React Query hooks
 func generateTRPCMethodWithReactQuery(content *strings.Builder, method types.APIMethod, indent int) {
+	// Create method template data with React Query enabled
+	templateData := createMethodTemplateData(method, "trpc-like", true)
+
+	var methodCode string
+	var err error
+
+	if method.Route.Method == "GET" {
+		methodCode, err = executeMethodTemplate(trpcGetMethodTemplate, templateData)
+	} else {
+		methodCode, err = executeMethodTemplate(trpcMutationMethodTemplate, templateData)
+	}
+
+	if err != nil {
+		// Fallback to original implementation if template fails
+		generateTRPCMethodWithReactQueryLegacy(content, method, indent)
+		return
+	}
+
+	// Apply proper indentation to each line
+	indentStr := strings.Repeat("  ", indent)
+	lines := strings.Split(methodCode, "\n")
+	for i, line := range lines {
+		if i > 0 && line != "" {
+			content.WriteString(indentStr)
+		}
+		content.WriteString(line)
+		if i < len(lines)-1 {
+			content.WriteString("\n")
+		}
+	}
+}
+
+// generateTRPCMethodWithReactQueryLegacy is the original implementation as fallback
+func generateTRPCMethodWithReactQueryLegacy(content *strings.Builder, method types.APIMethod, indent int) {
 	route := method.Route
 	responseType := route.ResponseType
 	if responseType == "" {
@@ -725,7 +971,7 @@ func generateTRPCMethodWithReactQuery(content *strings.Builder, method types.API
 
 		// Also provide the raw function
 		content.WriteString(fmt.Sprintf("%s  query: ", strings.Repeat("  ", indent+1)))
-		generateTRPCMethodImplementation(content, method, indent+1)
+		generateTRPCMethodImplementationLegacy(content, method, indent+1)
 		content.WriteString(fmt.Sprintf("\n%s}", strings.Repeat("  ", indent)))
 	} else {
 		// Generate mutation method object for POST/PUT/DELETE
@@ -821,7 +1067,7 @@ func generateTRPCMethodWithReactQuery(content *strings.Builder, method types.API
 
 		// Also provide the raw function
 		content.WriteString(fmt.Sprintf("%s  mutate: ", strings.Repeat("  ", indent+1)))
-		generateTRPCMethodImplementation(content, method, indent+1)
+		generateTRPCMethodImplementationLegacy(content, method, indent+1)
 		content.WriteString(fmt.Sprintf("\n%s}", strings.Repeat("  ", indent)))
 	}
 }
@@ -946,8 +1192,64 @@ func generateAxiosNestedObject(content *strings.Builder, nested types.NestedAPI,
 
 		switch v := value.(type) {
 		case types.APIMethod:
-			content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
-			generateAxiosMethodImplementation(content, v, indent)
+			// Generate the method code first to extract docstring
+			templateData := createMethodTemplateData(v, "axios", false)
+			methodCode, err := executeMethodTemplate(axiosMethodTemplate, templateData)
+
+			if err != nil {
+				// Fallback to original approach without docstring extraction
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+				generateAxiosMethodImplementationLegacy(content, v, indent)
+			} else {
+				// Extract docstring and method body separately
+				lines := strings.Split(methodCode, "\n")
+				var docstringLines []string
+				var methodBodyLines []string
+				inDocstring := false
+
+				for _, line := range lines {
+					trimmedLine := strings.TrimSpace(line)
+					if strings.HasPrefix(trimmedLine, "/**") {
+						inDocstring = true
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring && strings.HasSuffix(trimmedLine, "*/") {
+						inDocstring = false
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring {
+						docstringLines = append(docstringLines, line)
+					} else {
+						methodBodyLines = append(methodBodyLines, line)
+					}
+				}
+
+				// Write docstring first (with proper indentation)
+				if len(docstringLines) > 0 {
+					for _, line := range docstringLines {
+						if line != "" {
+							content.WriteString(indentStr)
+						}
+						content.WriteString(line)
+						content.WriteString("\n")
+					}
+				}
+
+				// Write property name and method body
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+
+				// Write method body (skip empty first line if it exists)
+				for j, line := range methodBodyLines {
+					if j == 0 && strings.TrimSpace(line) == "" {
+						continue
+					}
+					if j > 0 && line != "" {
+						content.WriteString(indentStr)
+					}
+					content.WriteString(line)
+					if j < len(methodBodyLines)-1 {
+						content.WriteString("\n")
+					}
+				}
+			}
 		case types.NestedAPI:
 			content.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, quotedKey))
 			generateAxiosNestedObject(content, v, indent+1)
@@ -963,6 +1265,33 @@ func generateAxiosNestedObject(content *strings.Builder, nested types.NestedAPI,
 
 // generateAxiosMethodImplementation generates Axios method implementations
 func generateAxiosMethodImplementation(content *strings.Builder, method types.APIMethod, indent int) {
+	// Create method template data
+	templateData := createMethodTemplateData(method, "axios", false)
+
+	// Execute the axios method template
+	methodCode, err := executeMethodTemplate(axiosMethodTemplate, templateData)
+	if err != nil {
+		// Fallback to original implementation if template fails
+		generateAxiosMethodImplementationLegacy(content, method, indent)
+		return
+	}
+
+	// Apply proper indentation to each line
+	indentStr := strings.Repeat("  ", indent)
+	lines := strings.Split(methodCode, "\n")
+	for i, line := range lines {
+		if i > 0 && line != "" {
+			content.WriteString(indentStr)
+		}
+		content.WriteString(line)
+		if i < len(lines)-1 {
+			content.WriteString("\n")
+		}
+	}
+}
+
+// generateAxiosMethodImplementationLegacy is the original implementation as fallback
+func generateAxiosMethodImplementationLegacy(content *strings.Builder, method types.APIMethod, indent int) {
 	route := method.Route
 	routePath := route.Path[4:] // Remove "/api" prefix
 
@@ -1008,4 +1337,131 @@ func generateAxiosMethodImplementation(content *strings.Builder, method types.AP
 	}
 
 	content.WriteString(fmt.Sprintf("%s}", strings.Repeat("  ", indent)))
+}
+
+// createMethodTemplateData creates template data for individual method templates
+func createMethodTemplateData(method types.APIMethod, generatorType string, reactQueryEnabled bool) MethodTemplateData {
+	route := method.Route
+	routePath := route.Path[4:] // Remove "/api" prefix
+
+	// Build parameter list
+	var params []string
+	if method.HasIDParam {
+		params = append(params, "id: number")
+	}
+	if method.HasBodyData {
+		requestType := route.RequestType
+		if route.Method == "POST" && !strings.Contains(requestType, "Omit") {
+			requestType = fmt.Sprintf("Omit<%s, 'id'>", requestType)
+		} else if (route.Method == "PUT" || route.Method == "PATCH") && !strings.Contains(requestType, "Partial") {
+			requestType = fmt.Sprintf("Partial<%s>", requestType)
+		}
+		params = append(params, "data: "+requestType)
+	}
+
+	responseType := route.ResponseType
+	if responseType == "" {
+		responseType = "unknown"
+	}
+
+	// Build request path with parameter substitution
+	requestPath := routePath
+	if method.HasIDParam {
+		re1 := regexp.MustCompile(`/:[^/]+`)
+		requestPath = re1.ReplaceAllString(requestPath, "/$${id}")
+		re2 := regexp.MustCompile(`/\{[^}]+\}`)
+		requestPath = re2.ReplaceAllString(requestPath, "/$${id}")
+	}
+
+	// Determine data parameter name based on generator type
+	dataParameter := "data"
+	if generatorType == "trpc-like" && reactQueryEnabled {
+		// For tRPC mutations with React Query hooks, but not for the raw mutate function
+		// The raw mutate function always uses the actual parameter names
+		dataParameter = "data"
+	}
+
+	// Build mutation variable type for tRPC
+	var mutationVariableType string
+	if method.HasIDParam && method.HasBodyData {
+		requestType := route.RequestType
+		if route.Method == "POST" && !strings.Contains(requestType, "Omit") {
+			requestType = fmt.Sprintf("Omit<%s, 'id'>", requestType)
+		} else if (route.Method == "PUT" || route.Method == "PATCH") && !strings.Contains(requestType, "Partial") {
+			requestType = fmt.Sprintf("Partial<%s>", requestType)
+		}
+		mutationVariableType = fmt.Sprintf("{ id: number; data: %s }", requestType)
+	} else if method.HasIDParam {
+		mutationVariableType = "number"
+	} else if method.HasBodyData {
+		requestType := route.RequestType
+		if route.Method == "POST" && !strings.Contains(requestType, "Omit") {
+			requestType = fmt.Sprintf("Omit<%s, 'id'>", requestType)
+		} else if (route.Method == "PUT" || route.Method == "PATCH") && !strings.Contains(requestType, "Partial") {
+			requestType = fmt.Sprintf("Partial<%s>", requestType)
+		}
+		mutationVariableType = requestType
+	} else {
+		mutationVariableType = "void"
+	}
+
+	// Build query parameter signatures for tRPC
+	var queryParamSig, queryOptionsParamSig string
+	if method.HasIDParam {
+		queryParamSig = "id: number, "
+		queryOptionsParamSig = "id: number"
+	}
+
+	// Build request path for mutations (React Query uses different variable patterns)
+	requestPathForMutation := requestPath
+	if generatorType == "trpc-like" && reactQueryEnabled && method.HasIDParam {
+		if method.HasBodyData {
+			// Use variables.id for PUT/PATCH with both ID and body
+			re1 := regexp.MustCompile(`\$\{id\}`)
+			requestPathForMutation = re1.ReplaceAllString(requestPath, "${variables.id}")
+		} else {
+			// Use variables directly for DELETE
+			re1 := regexp.MustCompile(`\$\{id\}`)
+			requestPathForMutation = re1.ReplaceAllString(requestPath, "${variables}")
+		}
+	}
+
+	return MethodTemplateData{
+		Description:                    route.Description,
+		Method:                         route.Method,
+		MethodLower:                    strings.ToLower(route.Method),
+		ParameterSignature:             strings.Join(params, ", "),
+		QueryParameterSignature:        queryParamSig,
+		QueryOptionsParameterSignature: queryOptionsParamSig,
+		ResponseType:                   responseType,
+		RequestPath:                    requestPath,
+		RequestPathForMutation:         requestPathForMutation,
+		HasIDParam:                     method.HasIDParam,
+		HasBodyData:                    method.HasBodyData,
+		DataParameter:                  dataParameter,
+		QueryKey:                       strings.TrimPrefix(route.Path, "/api/"),
+		MutationVariableType:           mutationVariableType,
+		ReactQueryEnabled:              reactQueryEnabled,
+	}
+}
+
+// executeMethodTemplate executes a method template and returns the generated code
+func executeMethodTemplate(templateStr string, data MethodTemplateData) (string, error) {
+	// Create custom function map for templates
+	funcMap := template.FuncMap{
+		"eq":  func(a, b string) bool { return a == b },
+		"and": func(a, b bool) bool { return a && b },
+	}
+
+	tmpl, err := template.New("method").Funcs(funcMap).Parse(templateStr)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse method template: %w", err)
+	}
+
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to execute method template: %w", err)
+	}
+
+	return buf.String(), nil
 }

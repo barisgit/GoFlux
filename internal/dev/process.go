@@ -148,17 +148,25 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 func (o *DevOrchestrator) generateTypes() error {
 	o.log("🔧 Generating API types...", "\x1b[36m")
 
-	// Read project configuration
-	projectConfig, err := config.ReadConfig("flux.yaml")
+	// Load configuration using enhanced system with fallback to defaults
+	cm := config.NewConfigManager(config.ConfigLoadOptions{
+		Path:              "flux.yaml",
+		AllowMissing:      true,  // Allow missing for type generation
+		ValidateStructure: false, // Don't validate during type generation
+		ApplyDefaults:     true,
+		WarnOnDeprecated:  false,
+		Quiet:             true, // Quiet during dev generation
+	})
+
+	projectConfig, err := cm.LoadConfig()
 	if err != nil {
 		o.log("⚠️  Warning: Could not read flux.yaml, using defaults", "\x1b[33m")
 		if o.debug {
 			o.log(fmt.Sprintf("Config read error: %v", err), "\x1b[33m")
 		}
-		// Use defaults if config file doesn't exist
-		defaultAPIConfig := config.GetDefaultAPIClientConfig()
+		// Use defaults if config file doesn't exist or is invalid
 		projectConfig = &config.ProjectConfig{
-			APIClient: defaultAPIConfig,
+			APIClient: config.GetDefaultAPIClientConfig(),
 		}
 	}
 

@@ -1,0 +1,31 @@
+{{if .Description}}/**
+ * {{.Description}}
+ */{{end}}
+{
+{{if .ReactQueryEnabled}}  useMutation: (options?: UseMutationOptions<{{.ResponseType}}, Error, {{.MutationVariableType}}>) => {
+    return useMutation({
+      mutationFn: (variables) => {
+{{if .HasBodyData}}        return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}`, {
+          method: '{{.Method}}',
+{{if and .HasBodyData .HasIDParam}}          body: JSON.stringify(variables.data),{{else}}          body: JSON.stringify(variables),{{end}}
+        }){{else}}        return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}`, { method: '{{.Method}}' }){{end}}
+      },
+      ...options,
+    })
+  },
+  mutationOptions: (options?: Omit<UseMutationOptions<{{.ResponseType}}, Error, {{.MutationVariableType}}>, 'mutationFn'>) => ({
+    mutationFn: (variables: {{.MutationVariableType}}) => {
+{{if .HasBodyData}}      return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}`, {
+        method: '{{.Method}}',
+{{if and .HasBodyData .HasIDParam}}        body: JSON.stringify(variables.data),{{else}}        body: JSON.stringify(variables),{{end}}
+      }){{else}}      return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}`, { method: '{{.Method}}' }){{end}}
+    },
+    ...options,
+  }),
+  mutate: {{end}}async ({{.ParameterSignature}}): Promise<{{.ResponseType}}> => {
+{{if .HasBodyData}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}`, {
+      method: '{{.Method}}',
+      body: JSON.stringify({{.DataParameter}}),
+    }){{else}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}`, { method: '{{.Method}}' }){{end}}
+  }{{if .ReactQueryEnabled}}{{end}}
+} 

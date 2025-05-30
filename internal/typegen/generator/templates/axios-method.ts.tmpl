@@ -1,0 +1,6 @@
+{{if .Description}}/**
+ * {{.Description}}
+ */{{end}}
+async ({{.ParameterSignature}}): Promise<AxiosResponse<{{.ResponseType}}>> => {
+{{if .HasBodyData}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`, {{.DataParameter}}){{else}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`){{end}}
+} 
