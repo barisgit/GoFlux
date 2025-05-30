@@ -70,15 +70,6 @@ func (o *DevOrchestrator) Start() error {
 		o.log("⚠️  Warning: Could not install Go dependencies", "\x1b[33m")
 	}
 
-	// Generate static handler files (needed before backend starts)
-	if err := o.generateStaticFiles(); err != nil {
-		o.log("⚠️  Warning: Could not generate static handler files", "\x1b[33m")
-		if o.debug {
-			o.log(fmt.Sprintf("Static files generation error: %v", err), "\x1b[31m")
-		}
-		// Continue anyway - backend might still work with existing files
-	}
-
 	// Use frontend manager to get dev command
 	frontendManager := frontend.NewManager(o.config, o.debug)
 	frontendDevCmd := frontendManager.GetDevCommand(o.frontendPort)

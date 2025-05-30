@@ -100,7 +100,7 @@ func GenerateAPIClient(routes []types.APIRoute, typeDefs []types.TypeDefinition)
 		if route.ResponseType != "" {
 			responseType := route.ResponseType
 			// Handle array types like "User[]"
-			if strings.HasSuffix(responseType, "[]") {
+			if strings.TrimSuffix(responseType, "[]") != responseType {
 				responseType = strings.TrimSuffix(responseType, "[]")
 			}
 			usedTypes[responseType] = true
@@ -221,31 +221,6 @@ func GenerateRouteManifest(routes []types.APIRoute) error {
 	}
 
 	return os.WriteFile(manifestFile, data, 0644)
-}
-
-// GenerateStaticFiles generates static handler files for both development and production
-func GenerateStaticFiles(enableSPARouting bool) error {
-	templateData := struct {
-		SPARouting bool
-	}{
-		SPARouting: enableSPARouting,
-	}
-
-	// Generate dev.go (used with !embed_static build tag)
-	devTemplatePath := "internal/static/dev.go.tmpl"
-	devOutputPath := filepath.Join("internal", "static", "dev.go")
-	if err := generateFileFromEmbeddedTemplate(devTemplatePath, devOutputPath, templateData); err != nil {
-		return fmt.Errorf("failed to generate dev.go: %w", err)
-	}
-
-	// Generate embedded.go (used with embed_static build tag)
-	embeddedTemplatePath := "internal/static/embedded.go.tmpl"
-	embeddedOutputPath := filepath.Join("internal", "static", "embedded.go")
-	if err := generateFileFromEmbeddedTemplate(embeddedTemplatePath, embeddedOutputPath, templateData); err != nil {
-		return fmt.Errorf("failed to generate embedded.go: %w", err)
-	}
-
-	return nil
 }
 
 // Helper function to generate a file from an embedded template

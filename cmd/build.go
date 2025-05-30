@@ -96,27 +96,22 @@ func (b *BuildOrchestrator) Build(forLinux, cleanFirst bool) error {
 		return err
 	}
 
-	// Step 2: Generate static handler files (needed before OpenAPI generation)
-	if err := b.generateStaticFiles(); err != nil {
-		return err
-	}
-
-	// Step 3: Generate TypeScript types from Go/OpenAPI
+	// Step 2: Generate TypeScript types from Go/OpenAPI
 	if err := b.generateTypes(); err != nil {
 		return err
 	}
 
-	// Step 4: Build frontend
+	// Step 3: Build frontend
 	if err := b.buildFrontend(); err != nil {
 		return err
 	}
 
-	// Step 5: Generate static HTML files (if supported)
+	// Step 4: Generate static HTML files (if supported)
 	if err := b.generateStaticSiteFiles(); err != nil {
 		return err
 	}
 
-	// Step 6: Build Go binary with embedded assets
+	// Step 5: Build Go binary with embedded assets
 	if err := b.buildGoBinary(forLinux); err != nil {
 		return err
 	}
@@ -298,23 +293,6 @@ func (b *BuildOrchestrator) buildFrontend() error {
 	}
 
 	b.log("✅ Frontend built", "\x1b[32m")
-	fmt.Println()
-	return nil
-}
-
-func (b *BuildOrchestrator) generateStaticFiles() error {
-	b.log("🔧 Generating static handler files...", "\x1b[36m")
-
-	// Generate static handler files for both dev and production
-	if err := generator.GenerateStaticFiles(b.config.Frontend.StaticGen.SPARouting); err != nil {
-		b.log("⚠️  Warning: Could not generate static handler files", "\x1b[33m")
-		if b.debug {
-			b.log(fmt.Sprintf("Static files generation error: %v", err), "\x1b[31m")
-		}
-		return fmt.Errorf("static files generation failed: %w", err)
-	}
-
-	b.log("✅ Static handler files generated", "\x1b[32m")
 	fmt.Println()
 	return nil
 }

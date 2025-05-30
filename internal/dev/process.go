@@ -159,19 +159,6 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 	return nil
 }
 
-func (o *DevOrchestrator) generateStaticFiles() error {
-	o.log("🔧 Generating static handler files...", "\x1b[36m")
-
-	// Generate static handler files for both dev and production
-	if err := generator.GenerateStaticFiles(o.config.Frontend.StaticGen.SPARouting); err != nil {
-		o.log("❌ Failed to generate static handler files", "\x1b[31m")
-		return fmt.Errorf("static files generation failed: %w", err)
-	}
-
-	o.log("✅ Static handler files generated", "\x1b[32m")
-	return nil
-}
-
 func (o *DevOrchestrator) generateTypes() error {
 	o.log("🔧 Generating API types...", "\x1b[36m")
 

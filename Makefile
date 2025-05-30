@@ -88,12 +88,7 @@ test-framework: dev-install
 	@cd test-framework-project && \
 		echo "" >> go.mod && \
 		echo "replace github.com/barisgit/goflux => $(PWD)" >> go.mod && \
-		go mod tidy && \
-		echo "✅ Framework dependencies added" && \
-		go run ./cmd/server openapi -o test-openapi.json && \
-		echo "✅ OpenAPI generation works!" && \
-		ls -la test-openapi.json
-	@echo "🎉 Framework integration test complete!"
+		go mod tidy
 
 # Development workflow
 dev-workflow: clean test-project

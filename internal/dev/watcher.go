@@ -211,7 +211,6 @@ func (o *DevOrchestrator) handleConfigEvents() {
 		}
 	}
 }
-
 func (o *DevOrchestrator) checkConfigChanges(old, new *config.ProjectConfig) bool {
 	// Check if changes require service restart
 	if old.Port != new.Port ||
@@ -220,21 +219,7 @@ func (o *DevOrchestrator) checkConfigChanges(old, new *config.ProjectConfig) boo
 		return true
 	}
 
-	// Check if SPA routing config changed (affects static files)
-	if old.Frontend.StaticGen.SPARouting != new.Frontend.StaticGen.SPARouting {
-		// Regenerate static files with new SPA routing setting
-		go func() {
-			o.log("🔧 SPA routing config changed, regenerating static files...", "\x1b[36m")
-			if err := o.generateStaticFiles(); err != nil {
-				o.log("⚠️  Warning: Could not regenerate static files", "\x1b[33m")
-				if o.debug {
-					o.log(fmt.Sprintf("Static files generation error: %v", err), "\x1b[31m")
-				}
-			} else {
-				o.log("✅ Static files regenerated for new SPA routing setting!", "\x1b[32m")
-			}
-		}()
-	}
+	// TODO: Do something here
 
 	return false
 }

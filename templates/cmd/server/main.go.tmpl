@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -45,15 +44,6 @@ type Options struct {
 	Port int `help:"Port to listen on" short:"p" default:"3000"`
 	Host string `help:"Host to bind to" default:"127.0.0.1"`
 	Dev  bool   `help:"Development mode (disables static file serving)" default:"false"`
-}
-
-// HealthOutput represents the health check response
-type HealthOutput struct {
-	Body struct {
-		Status  string `json:"status" example:"ok" doc:"Service status"`
-		Message string `json:"message" example:"{{.ProjectName}} server is running!" doc:"Status message"`
-		Version string `json:"version" example:"1.0.0" doc:"API version"`
-	}
 }
 
 func main() {
@@ -202,21 +192,8 @@ func main() {
 		humaAPI := humamux.New(router, config)
 		{{end}}
 
-		// Register health check endpoint
-		huma.Register(humaAPI, huma.Operation{
-			OperationID: "health-check",
-			Method:      http.MethodGet,
-			Path:        "/api/health",
-			Summary:     "Health Check",
-			Description: "Check if the API is running and healthy",
-			Tags:        []string{"Health"},
-		}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
-			resp := &HealthOutput{}
-			resp.Body.Status = "ok"
-			resp.Body.Message = "{{.ProjectName}} server is running!"
-			resp.Body.Version = "1.0.0"
-			return resp, nil
-		})
+		// Register health check endpoint using GoFlux utility
+		goflux.AddHealthCheck(humaAPI, "/api/health", "{{.ProjectName}}", "1.0.0")
 
 		// Initialize database (mock database for demo)
 		database := db.NewMockDB()
