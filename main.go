@@ -9,16 +9,20 @@ import (
 	"github.com/barisgit/goflux/cmd"
 )
 
-var version = "0.1.0"
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
 	rootCmd := &cobra.Command{
 		Use:     "flux",
 		Short:   "GoFlux - Full-stack Go development framework",
 		Long:    `GoFlux is a modern full-stack framework combining Go backend with TypeScript frontend.`,
-		Version: version,
+		Version: buildVersion(),
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("🚀 GoFlux CLI v" + version)
+			fmt.Println("🚀 GoFlux CLI " + buildVersion())
 			fmt.Println("Run 'flux --help' for available commands")
 		},
 	}
@@ -34,4 +38,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func buildVersion() string {
+	if version == "dev" {
+		return "v" + version
+	}
+	return version
 }

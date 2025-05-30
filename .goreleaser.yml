@@ -1,0 +1,157 @@
+project_name: goflux
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: flux
+    main: ./main.go
+    binary: flux
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    goarm:
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: flux
+    format: tar.gz
+    name_template: 'flux_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - templates/**/*
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+
+release:
+  github:
+    owner: barisgit
+    name: goflux
+  draft: false
+  prerelease: auto
+  name_template: "GoFlux v{{.Version}}"
+  header: |
+    ## 🚀 GoFlux v{{.Version}}
+    
+    ### Installation
+    
+    **macOS/Linux (Homebrew)**
+    ```bash
+    brew install barisgit/goflux/goflux
+    ```
+    
+    **Go Install**
+    ```bash
+    go install github.com/barisgit/goflux@{{.Tag}}
+    ```
+    
+    **Manual Download**
+    Download the appropriate binary for your platform from the assets below.
+
+# Homebrew tap
+brews:
+  - repository:
+      owner: barisgit
+      name: homebrew-goflux
+    homepage: https://github.com/barisgit/goflux
+    description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
+    license: MIT
+    install: |
+      bin.install "flux"
+    test: |
+      system "#{bin}/flux", "--version"
+
+# Chocolatey package for Windows
+chocolateys:
+  - name: goflux
+    title: GoFlux CLI
+    authors: Baris Git
+    project_url: https://github.com/barisgit/goflux
+    license_url: https://github.com/barisgit/goflux/blob/main/LICENSE
+    require_license_acceptance: false
+    project_source_url: https://github.com/barisgit/goflux
+    docs_url: https://github.com/barisgit/goflux/blob/main/README.md
+    bug_tracker_url: https://github.com/barisgit/goflux/issues
+    tags: "go golang typescript fullstack cli framework"
+    summary: The fastest way to build full-stack applications with Go + TypeScript
+    description: |
+      GoFlux is a CLI and a micro-framework that creates and manages full-stack projects with Go backend and modern TypeScript frontend frameworks.
+    release_notes: "https://github.com/barisgit/goflux/releases/tag/v{{ .Version }}"
+
+# Scoop package for Windows
+scoops:
+  - repository:
+      owner: barisgit
+      name: scoop-goflux
+    homepage: https://github.com/barisgit/goflux
+    description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
+    license: MIT
+
+# Docker images
+dockers:
+  - image_templates:
+      - "barisgit/goflux:{{ .Version }}-amd64"
+      - "barisgit/goflux:latest-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - image_templates:
+      - "barisgit/goflux:{{ .Version }}-arm64"
+      - "barisgit/goflux:latest-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+docker_manifests:
+  - name_template: "barisgit/goflux:{{ .Version }}"
+    image_templates:
+      - "barisgit/goflux:{{ .Version }}-amd64"
+      - "barisgit/goflux:{{ .Version }}-arm64"
+  - name_template: "barisgit/goflux:latest"
+    image_templates:
+      - "barisgit/goflux:latest-amd64"
+      - "barisgit/goflux:latest-arm64" 

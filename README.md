@@ -17,16 +17,56 @@ GoFlux is a CLI and a micro-framework that creates and manages full-stack projec
 
 ### Installation
 
-```bash
-# Install GoFlux CLI
-go install github.com/barisgit/goflux@latest # (coming soon)
+#### Option 1: One-line Install Script (Recommended)
 
-# Or build from source
-git clone https://github.com/barisgit/goflux
-cd goflux
-go build -o flux .
-mv flux /usr/local/bin/
+**macOS/Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/barisgit/goflux/main/scripts/install.sh | bash
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/barisgit/goflux/main/scripts/install.ps1 | iex
+```
+
+#### Option 2: Package Managers
+
+**Homebrew (macOS/Linux):**
+
+```bash
+brew install barisgit/goflux/goflux
+```
+
+**Chocolatey (Windows):**
+
+```cmd
+choco install goflux
+```
+
+**Scoop (Windows):**
+
+```cmd
+scoop bucket add goflux https://github.com/barisgit/scoop-goflux
+scoop install goflux
+```
+
+#### Option 3: Go Install
+
+```bash
+go install github.com/barisgit/goflux@latest
+```
+
+#### Option 4: Docker
+
+```bash
+docker run --rm -v $(pwd):/workspace barisgit/goflux:latest new my-app
+```
+
+#### Option 5: Manual Download
+
+Download the latest binary from [GitHub Releases](https://github.com/barisgit/goflux/releases/latest)
 
 ### Create a New Project
 
@@ -52,7 +92,7 @@ That's it! Your app is running at:
 
 ## 🏗️ Project Structure
 
-```
+```text
 my-app/
 ├── flux.yaml          # Project configuration
 ├── go.mod              # Go dependencies
@@ -96,11 +136,13 @@ flux --help               # Show all commands
 ## 🎨 Frontend Options
 
 **TanStack Router (Recommended)**
+
 - File-based routing
 - Type-safe navigation
 - Best performance
 
 **Next.js**
+
 - App router
 - Built-in optimizations
 - Large ecosystem

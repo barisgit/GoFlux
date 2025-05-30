@@ -1,4 +1,4 @@
-.PHONY: help build dev-install dev-uninstall clean install test
+.PHONY: help build dev-install dev-uninstall clean install test release-dry-run release tag
 
 # Default target
 help:
@@ -11,11 +11,19 @@ help:
 	@echo "  clean         - Clean build artifacts"
 	@echo "  install       - Install to /usr/local/bin (production)"
 	@echo "  test          - Run tests"
+	@echo "  release-dry-run - Test release process without publishing"
+	@echo "  release       - Create and publish a new release"
+	@echo "  tag           - Create a new git tag (usage: make tag VERSION=v1.0.0)"
 	@echo ""
 	@echo "Development workflow:"
 	@echo "  1. make dev-install    # Install in dev mode"
 	@echo "  2. flux new myapp    # Use from anywhere"
 	@echo "  3. make dev-uninstall  # Clean up when done"
+	@echo ""
+	@echo "Release workflow:"
+	@echo "  1. make release-dry-run  # Test the release"
+	@echo "  2. make tag VERSION=v1.0.0  # Create tag"
+	@echo "  3. git push origin v1.0.0   # Trigger release"
 
 # Development installation - creates a script that runs go run
 dev-install:
@@ -109,4 +117,46 @@ status:
 		echo "✅ System installation: $$(which flux)"; \
 	else \
 		echo "❌ System installation: Not found"; \
-	fi 
+	fi
+
+# Release management
+release-dry-run:
+	@echo "🧪 Testing release process..."
+	@if ! command -v goreleaser >/dev/null 2>&1; then \
+		echo "❌ goreleaser not found. Install with:"; \
+		echo "  go install github.com/goreleaser/goreleaser@latest"; \
+		exit 1; \
+	fi
+	@goreleaser release --snapshot --clean
+	@echo "✅ Release dry run completed successfully"
+
+release:
+	@echo "🚀 Creating release..."
+	@if ! command -v goreleaser >/dev/null 2>&1; then \
+		echo "❌ goreleaser not found. Install with:"; \
+		echo "  go install github.com/goreleaser/goreleaser@latest"; \
+		exit 1; \
+	fi
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ VERSION required. Usage: make release VERSION=v1.0.0"; \
+		exit 1; \
+	fi
+	@echo "Creating release for version: $(VERSION)"
+	@git tag $(VERSION)
+	@git push origin $(VERSION)
+	@echo "✅ Release $(VERSION) triggered"
+
+tag:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ VERSION required. Usage: make tag VERSION=v1.0.0"; \
+		exit 1; \
+	fi
+	@echo "🏷️  Creating tag $(VERSION)..."
+	@git tag $(VERSION)
+	@echo "✅ Tag $(VERSION) created. Push with: git push origin $(VERSION)"
+
+# Install goreleaser for releases
+install-goreleaser:
+	@echo "📦 Installing goreleaser..."
+	@go install github.com/goreleaser/goreleaser@latest
+	@echo "✅ goreleaser installed" 
