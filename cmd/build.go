@@ -123,10 +123,16 @@ func (b *BuildOrchestrator) Build(forLinux, cleanFirst bool) error {
 func (b *BuildOrchestrator) clean() error {
 	b.log("🧹 Cleaning build artifacts...", "\x1b[33m")
 
+	// Get frontend static directory from config
+	frontendStaticDir := b.config.Build.StaticDir
+	if frontendStaticDir == "" {
+		frontendStaticDir = "frontend/dist"
+	}
+
 	// Directories to clean
 	dirsToClean := []string{
 		b.config.Build.OutputDir,
-		"frontend/dist",
+		frontendStaticDir,
 		"frontend/node_modules/.vite",
 		"tmp",
 		"build",
@@ -434,7 +440,12 @@ func (b *BuildOrchestrator) buildGoBinary(forLinux bool) error {
 }
 
 func (b *BuildOrchestrator) copyFrontendForEmbedding() error {
-	frontendDistPath := "frontend/dist"
+	// Use StaticDir from config instead of hardcoded path
+	frontendDistPath := b.config.Build.StaticDir
+	if frontendDistPath == "" {
+		// Fallback to default if not specified in config
+		frontendDistPath = "frontend/dist"
+	}
 	staticPath := "internal/static/assets"
 
 	// Remove existing static directory if it exists
@@ -443,7 +454,7 @@ func (b *BuildOrchestrator) copyFrontendForEmbedding() error {
 	}
 
 	if _, err := os.Stat(frontendDistPath); os.IsNotExist(err) {
-		b.log("⚠️  No frontend/dist directory found, creating placeholder for embedding", "\x1b[33m")
+		b.log(fmt.Sprintf("⚠️  No %s directory found, creating placeholder for embedding", frontendDistPath), "\x1b[33m")
 
 		// Create static directory with placeholder file so embed doesn't fail
 		if err := os.MkdirAll(staticPath, 0755); err != nil {
@@ -462,7 +473,7 @@ func (b *BuildOrchestrator) copyFrontendForEmbedding() error {
 
 	b.log("📁 Copying frontend files for embedding...", "\x1b[36m")
 
-	// Copy frontend/dist to internal/static/assets
+	// Copy configured static directory to internal/static/assets
 	return b.copyDir(frontendDistPath, staticPath)
 }
 

@@ -254,9 +254,9 @@ func extractTypeName(schema *Schema) string {
 	case "boolean":
 		return "boolean"
 	case "object":
-		return "any"
+		return "unknown"
 	default:
-		return "any"
+		return "unknown"
 	}
 }
 
@@ -380,11 +380,11 @@ func schemaToTypeScriptType(schema Schema) string {
 			itemType := schemaToTypeScriptType(*schema.Items)
 			return itemType + "[]"
 		}
-		return "any[]"
+		return "unknown[]"
 	case "object":
-		return "any"
+		return "unknown"
 	default:
-		return "any"
+		return "unknown"
 	}
 }
 

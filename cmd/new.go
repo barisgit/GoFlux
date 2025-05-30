@@ -439,6 +439,14 @@ func selectRemoteTemplate() (config.FrontendConfig, error) {
 }
 
 func generateProjectConfig(name string, frontendConfig config.FrontendConfig, backend string) config.ProjectConfig {
+	// Determine the appropriate static directory based on frontend framework
+	staticDir := "frontend/dist" // Default for most frameworks
+
+	// Next.js with static export outputs to 'out' by default
+	if frontendConfig.Framework == "nextjs" {
+		staticDir = "frontend/out"
+	}
+
 	return config.ProjectConfig{
 		Name:     name,
 		Port:     3000,
@@ -450,7 +458,7 @@ func generateProjectConfig(name string, frontendConfig config.FrontendConfig, ba
 			OutputDir:   "dist",
 			BinaryName:  "server",
 			EmbedStatic: true,
-			StaticDir:   "frontend/dist",
+			StaticDir:   staticDir,
 			BuildTags:   "embed_static",
 			LDFlags:     "-s -w",
 			CGOEnabled:  false,

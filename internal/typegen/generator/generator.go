@@ -129,7 +129,7 @@ func GenerateAPIClient(routes []types.APIRoute, typeDefs []types.TypeDefinition)
 	content.WriteString("export interface HumaErrorDetail {\n")
 	content.WriteString("  message: string\n")
 	content.WriteString("  location: string\n")
-	content.WriteString("  value: any\n")
+	content.WriteString("  value: unknown\n")
 	content.WriteString("}\n\n")
 
 	content.WriteString("export interface HumaError {\n")
@@ -407,7 +407,7 @@ func generateMethodImplementation(content *strings.Builder, method types.APIMeth
 
 	responseType := route.ResponseType
 	if responseType == "" {
-		responseType = "any"
+		responseType = "unknown"
 	}
 
 	paramStr := strings.Join(params, ", ")
