@@ -63,16 +63,13 @@ func (o *DevOrchestrator) Start() error {
 
 	// Install Go dependencies
 	o.log("📦 Installing Go dependencies...", "\x1b[33m")
-	goModCmd := exec.Command("go", "mod", "tidy")
-	goModCmd.Stdout = os.Stdout
-	goModCmd.Stderr = os.Stderr
-	if err := goModCmd.Run(); err != nil {
+	cmd := exec.Command("go", "mod", "tidy")
+	if err := cmd.Run(); err != nil {
 		o.log("⚠️  Warning: Could not install Go dependencies", "\x1b[33m")
 	}
 
-	// Use frontend manager to get dev command
-	frontendManager := frontend.NewManager(o.config, o.debug)
-	frontendDevCmd := frontendManager.GetDevCommand(o.frontendPort)
+	// Get frontend dev command from config
+	frontendDevCmd := strings.ReplaceAll(o.config.Frontend.DevCmd, "{{port}}", fmt.Sprintf("%d", o.frontendPort))
 
 	o.processes = []ProcessInfo{
 		{
@@ -175,21 +172,23 @@ func (o *DevOrchestrator) setupFrontendIfNeeded() error {
 	if _, err := os.Stat(packageJsonPath); os.IsNotExist(err) {
 		o.log("📦 Setting up frontend for the first time...", "\x1b[33m")
 
-		// Use the new frontend management system
-		frontendManager := frontend.NewManager(o.config, o.debug)
+		// Use the unified frontend management system
+		unifiedManager, err := frontend.NewUnifiedManager(o.config, o.debug)
+		if err != nil {
+			return fmt.Errorf("failed to create unified frontend manager: %w", err)
+		}
 
-		// Setup frontend using the new system
-		if err := frontendManager.Setup("."); err != nil {
+		// Generate frontend using the unified system
+		if err := unifiedManager.GenerateFrontend(frontendPath); err != nil {
 			return fmt.Errorf("failed to setup frontend: %w", err)
 		}
 
-		// Install dependencies
+		// Install dependencies if package.json was created
 		if _, err := os.Stat(packageJsonPath); err == nil {
 			o.log("📦 Installing frontend dependencies...", "\x1b[33m")
 
-			// Use the install command from the frontend manager
-			installCmd := frontendManager.GetInstallCommand()
-			cmd := exec.Command("sh", "-c", installCmd)
+			// Use pnpm install as the default
+			cmd := exec.Command("pnpm", "install")
 			cmd.Dir = frontendPath
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr

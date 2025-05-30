@@ -3,95 +3,35 @@ package templates
 import (
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
-	"text/template"
 
 	"github.com/barisgit/goflux/templates"
 )
 
 // TemplateData contains the data passed to templates
 type TemplateData struct {
-	ProjectName string
-	ModuleName  string
-	GoVersion   string
-	BackendPort string
-	Router      string
-	SPARouting  bool
+	ProjectName        string
+	ModuleName         string
+	GoVersion          string
+	Port               string
+	Router             string
+	SPARouting         bool
+	ProjectDescription string
+	CustomVars         map[string]interface{}
 }
 
-// GenerateProject creates a new project from templates
-func GenerateProject(projectPath, projectName, router string) error {
-	data := TemplateData{
-		ProjectName: projectName,
-		ModuleName:  projectName,
-		GoVersion:   "1.24.2",
-		BackendPort: "3000",
-		Router:      router,
-		SPARouting:  true, // Default to SPA routing enabled
+// GenerateProject creates a new project from templates using the new unified system
+func GenerateProject(templateName, projectPath, projectName, router string) error {
+	manager := NewManager()
+	if err := manager.LoadTemplates(); err != nil {
+		return fmt.Errorf("failed to load templates: %w", err)
 	}
 
-	// Use embedded templates
-	return generateFromEmbedded(projectPath, data)
+	customVars := make(map[string]interface{})
+	return manager.GenerateProject(templateName, projectPath, projectName, router, customVars)
 }
 
-// generateFromEmbedded generates project from embedded templates
-func generateFromEmbedded(projectPath string, data TemplateData) error {
-	// Walk through all template files in the embedded filesystem
-	return fs.WalkDir(templates.TemplatesFS, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		// Only process .tmpl files
-		if !strings.HasSuffix(path, ".tmpl") {
-			return nil
-		}
-
-		// Read template file from embedded filesystem
-		content, err := templates.TemplatesFS.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read template %s: %w", path, err)
-		}
-
-		// Parse and execute template
-		tmpl, err := template.New(filepath.Base(path)).Parse(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to parse template %s: %w", path, err)
-		}
-
-		// Determine output path (remove .tmpl extension)
-		outputPath := strings.TrimSuffix(path, ".tmpl")
-		fullOutputPath := filepath.Join(projectPath, outputPath)
-
-		// Create directory if it doesn't exist
-		outputDir := filepath.Dir(fullOutputPath)
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", outputDir, err)
-		}
-
-		// Create output file
-		outputFile, err := os.Create(fullOutputPath)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", fullOutputPath, err)
-		}
-		defer outputFile.Close()
-
-		// Execute template and write to file
-		if err := tmpl.Execute(outputFile, data); err != nil {
-			return fmt.Errorf("failed to execute template %s: %w", path, err)
-		}
-
-		return nil
-	})
-}
-
-// ListTemplates returns all available template files
+// ListTemplates returns all available template files (legacy function for compatibility)
 func ListTemplates() ([]string, error) {
 	var templateFiles []string
 
@@ -108,4 +48,13 @@ func ListTemplates() ([]string, error) {
 	})
 
 	return templateFiles, err
+}
+
+// GetTemplateManager creates and loads a template manager
+func GetTemplateManager() (*Manager, error) {
+	manager := NewManager()
+	if err := manager.LoadTemplates(); err != nil {
+		return nil, fmt.Errorf("failed to load templates: %w", err)
+	}
+	return manager, nil
 }

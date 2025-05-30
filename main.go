@@ -28,6 +28,7 @@ func main() {
 	rootCmd.AddCommand(cmd.DevCmd())
 	rootCmd.AddCommand(cmd.BuildCmd())
 	rootCmd.AddCommand(cmd.GenerateTypesCmd())
+	rootCmd.AddCommand(cmd.ListCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

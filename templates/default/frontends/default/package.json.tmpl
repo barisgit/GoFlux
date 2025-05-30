@@ -1,10 +1,10 @@
 {
-  "name": "{{.project_name}}-frontend",
+  "name": "{{.ProjectName}}-frontend",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port {{.port}} --host",
-    "start": "vite --port {{.port}} --host",
+    "dev": "vite --port {{.Port}} --host",
+    "start": "vite --port {{.Port}} --host", 
     "build": "vite build && tsc",
     "build:ssr": "vite build --ssr src/entry-server.tsx --outDir dist/server",
     "build:all": "npm run build && npm run build:ssr",

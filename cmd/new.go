@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,18 +28,20 @@ func NewCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("debug", false, "Enable debug logging")
-	cmd.Flags().String("template", "", "Specify frontend template (hardcoded, script, custom, or remote)")
-	cmd.Flags().String("template-source", "", "Template source (name, command, or URL)")
-	cmd.Flags().String("framework", "", "Frontend framework name")
+	cmd.Flags().String("template", "default", "Backend template name")
+	cmd.Flags().String("frontend", "", "Frontend template name")
+	cmd.Flags().String("frontend-type", "", "Frontend type (template, script, custom)")
+	cmd.Flags().String("router", "", "Backend router (chi, gin, fiber, etc.)")
 
 	return cmd
 }
 
 func runNew(cmd *cobra.Command, args []string) error {
 	debug, _ := cmd.Flags().GetBool("debug")
-	templateType, _ := cmd.Flags().GetString("template")
-	templateSource, _ := cmd.Flags().GetString("template-source")
-	framework, _ := cmd.Flags().GetString("framework")
+	templateName, _ := cmd.Flags().GetString("template")
+	frontendName, _ := cmd.Flags().GetString("frontend")
+	frontendType, _ := cmd.Flags().GetString("frontend-type")
+	router, _ := cmd.Flags().GetString("router")
 
 	var projectName string
 
@@ -53,40 +57,150 @@ func runNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create frontend manager to get available options
+	// Create temporary config for unified manager
 	tempConfig := &config.ProjectConfig{Name: projectName}
-	frontendManager := frontend.NewManager(tempConfig, debug)
+	unifiedManager, err := frontend.NewUnifiedManager(tempConfig, debug)
+	if err != nil {
+		return fmt.Errorf("failed to initialize frontend manager: %w", err)
+	}
+
+	// Backend template selection
+	if templateName == "default" {
+		// Interactive template selection
+		availableTemplates := unifiedManager.GetAvailableTemplates()
+		if len(availableTemplates) > 0 {
+			var templateOptions []string
+			for name, desc := range availableTemplates {
+				templateOptions = append(templateOptions, fmt.Sprintf("%s - %s", name, desc))
+			}
+
+			// Add external template option
+			templateOptions = append(templateOptions, "external - Use external template (GitHub repo or local path)")
+
+			var selectedTemplate string
+			templatePrompt := &survey.Select{
+				Message: "Choose backend template:",
+				Options: templateOptions,
+				Default: "default - " + availableTemplates["default"],
+			}
+			if err := survey.AskOne(templatePrompt, &selectedTemplate); err != nil {
+				return err
+			}
+
+			if strings.HasPrefix(selectedTemplate, "external") {
+				// Handle external template
+				var templateSource string
+				sourcePrompt := &survey.Input{
+					Message: "Enter template source (GitHub URL or local path):",
+					Help:    "Examples: https://github.com/user/repo or /path/to/template",
+				}
+				if err := survey.AskOne(sourcePrompt, &templateSource); err != nil {
+					return err
+				}
+
+				// Load external template
+				externalTemplate, err := loadExternalTemplate(templateSource)
+				if err != nil {
+					return fmt.Errorf("failed to load external template: %w", err)
+				}
+
+				templateName = "external"
+				// Store the external template info for later use
+				tempConfig.ExternalTemplate = &config.ExternalTemplateConfig{
+					Source:      templateSource,
+					Name:        externalTemplate.Name,
+					Description: externalTemplate.Description,
+				}
+			} else {
+				templateName = strings.Split(selectedTemplate, " - ")[0]
+			}
+		}
+	}
 
 	// Frontend selection
 	var frontendConfig config.FrontendConfig
-	if templateType != "" && templateSource != "" {
+	if frontendName != "" && frontendType != "" {
 		// Use command line flags
-		frontendConfig = createFrontendConfigFromFlags(templateType, templateSource, framework)
+		frontendConfig = createFrontendConfigFromFlags(frontendType, frontendName, unifiedManager)
 	} else {
 		// Interactive selection
-		var err error
-		frontendConfig, err = selectFrontendInteractive(frontendManager)
+		frontendConfig, err = selectFrontendInteractive(unifiedManager)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Backend router selection
-	var backendRouter string
-	routerPrompt := &survey.Select{
-		Message: "Choose backend router:",
-		Options: []string{
-			"Chi (Recommended)",
-			"Fiber",
-			"Gin",
-			"Echo",
-			"Go 1.22+ ServeMux",
-			"Gorilla Mux",
-		},
-		Default: "Chi (Recommended)",
-	}
-	if err := survey.AskOne(routerPrompt, &backendRouter); err != nil {
-		return err
+	if router == "" {
+		var template *templates.TemplateManifest
+		var err error
+
+		if templateName == "external" && tempConfig.ExternalTemplate != nil {
+			// Load external template for router selection
+			template, err = loadExternalTemplate(tempConfig.ExternalTemplate.Source)
+			if err != nil {
+				return fmt.Errorf("failed to load external template for router selection: %w", err)
+			}
+		} else {
+			// Get supported routers from regular template
+			templateManager, err := templates.GetTemplateManager()
+			if err != nil {
+				return fmt.Errorf("failed to get template manager: %w", err)
+			}
+
+			var exists bool
+			template, exists = templateManager.GetTemplate(templateName)
+			if !exists {
+				return fmt.Errorf("template %s not found", templateName)
+			}
+		}
+
+		// Define router options with clean values and descriptions
+		type RouterOption struct {
+			Value       string
+			Description string
+		}
+
+		var routerMap = map[string]RouterOption{
+			"chi":      {Value: "chi", Description: "Chi (Recommended)"},
+			"fiber":    {Value: "fiber", Description: "Fiber"},
+			"gin":      {Value: "gin", Description: "Gin"},
+			"echo":     {Value: "echo", Description: "Echo"},
+			"gorilla":  {Value: "gorilla", Description: "Gorilla Mux"},
+			"mux":      {Value: "mux", Description: "Go 1.22+ ServeMux"},
+			"fasthttp": {Value: "fasthttp", Description: "FastHTTP"},
+		}
+
+		// Create options list with only supported routers
+		var routerOptions []string
+		var routerLookup = make(map[string]string) // description -> value
+
+		for _, supportedRouter := range template.Backend.SupportedRouters {
+			if option, exists := routerMap[supportedRouter]; exists {
+				routerOptions = append(routerOptions, option.Description)
+				routerLookup[option.Description] = option.Value
+			} else {
+				// Fallback for unknown routers
+				routerOptions = append(routerOptions, supportedRouter)
+				routerLookup[supportedRouter] = supportedRouter
+			}
+		}
+
+		var selectedDescription string
+		routerPrompt := &survey.Select{
+			Message: "Choose backend router:",
+			Options: routerOptions,
+			Default: routerOptions[0], // First supported router
+		}
+		if err := survey.AskOne(routerPrompt, &selectedDescription); err != nil {
+			return err
+		}
+
+		// Get the clean router value
+		router = routerLookup[selectedDescription]
+		if router == "" {
+			router = selectedDescription // Fallback
+		}
 	}
 
 	// Create project directory
@@ -100,24 +214,28 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate project config
-	cfg := generateProjectConfig(projectName, frontendConfig, backendRouter)
+	cfg := generateProjectConfig(projectName, frontendConfig, router, templateName, tempConfig)
 	if err := writeConfig(filepath.Join(projectName, "flux.yaml"), cfg); err != nil {
 		return err
 	}
 
-	// Create project structure
-	if err := createProjectStructure(projectName, backendRouter, debug); err != nil {
+	// Create project structure using unified template system
+	if err := createProjectStructure(projectName, templateName, router, debug); err != nil {
 		return err
 	}
 
-	// Setup frontend if it's a hardcoded template without install command
-	if shouldSetupFrontendDuringCreation(frontendConfig, &cfg) {
+	// Setup frontend if it's a template-based frontend
+	if shouldSetupFrontendDuringCreation(frontendConfig) {
 		fmt.Printf("📦 Setting up frontend from template...\n")
 
-		// Create frontend manager and setup frontend
-		frontendManager := frontend.NewManager(&cfg, debug)
+		// Create unified manager with the full config
+		unifiedManager, err := frontend.NewUnifiedManager(&cfg, debug)
+		if err != nil {
+			return fmt.Errorf("failed to create unified manager: %w", err)
+		}
 
-		if err := frontendManager.Setup(projectName); err != nil {
+		frontendPath := filepath.Join(projectName, "frontend")
+		if err := unifiedManager.GenerateFrontend(frontendPath); err != nil {
 			return fmt.Errorf("failed to setup frontend: %w", err)
 		}
 
@@ -132,17 +250,17 @@ func runNew(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func createFrontendConfigFromFlags(templateType, templateSource, framework string) config.FrontendConfig {
-	// Default config with fallbacks
+func createFrontendConfigFromFlags(frontendType, frontendName string, unifiedManager *frontend.UnifiedManager) config.FrontendConfig {
+	// Default config
 	frontendConfig := config.FrontendConfig{
-		Framework: framework,
-		DevCmd:    "cd frontend && pnpm dev --port {{port}} --host", // Default fallback
+		Framework: frontendName,
+		DevCmd:    "cd frontend && pnpm dev --port {{port}} --host",
 		BuildCmd:  "cd frontend && pnpm build",
 		TypesDir:  "src/types",
 		LibDir:    "src/lib",
 		Template: config.TemplateConfig{
-			Type:   templateType,
-			Source: templateSource,
+			Type:   frontendType,
+			Source: frontendName,
 		},
 		StaticGen: config.StaticGenConfig{
 			Enabled:    false,
@@ -150,211 +268,211 @@ func createFrontendConfigFromFlags(templateType, templateSource, framework strin
 		},
 	}
 
-	// Set framework-specific defaults if not specified
-	if framework == "" {
-		switch templateType {
-		case "hardcoded":
-			frontendConfig.Framework = templateSource
-		default:
-			frontendConfig.Framework = "custom"
+	// Get better defaults from template or script registry
+	switch frontendType {
+	case "template":
+		// Get from template-based frontends
+		supportedFrontends, _, err := unifiedManager.GetSupportedFrontends()
+		if err == nil {
+			for _, option := range supportedFrontends {
+				if option.Name == frontendName || option.Framework == frontendName {
+					frontendConfig.Framework = option.Framework
+					frontendConfig.DevCmd = option.DevCmd
+					frontendConfig.BuildCmd = option.BuildCmd
+					frontendConfig.TypesDir = option.TypesDir
+					frontendConfig.LibDir = option.LibDir
+					frontendConfig.StaticGen = option.StaticGen
+					break
+				}
+			}
 		}
-	}
-
-	// If it's a hardcoded template, try to get better defaults from registry
-	if templateType == "hardcoded" {
-		tempConfig := &config.ProjectConfig{Name: "temp"}
-		frontendManager := frontend.NewManager(tempConfig, false)
-		allTemplates := frontendManager.GetTemplateRegistry().GetAllTemplates()
-
-		if template, exists := allTemplates[templateSource]; exists {
-			// Use template fields if available
-			if template.DevCmd != "" {
-				frontendConfig.DevCmd = template.DevCmd
+	case "script":
+		// Get from script registry
+		if unifiedManager.IsScriptFramework(frontendName) {
+			// The unified manager will handle getting the right script
+			scriptFrameworks := unifiedManager.GetScriptFrontends()
+			for _, framework := range scriptFrameworks {
+				if framework.Name == frontendName {
+					frontendConfig.Framework = framework.Framework
+					frontendConfig.DevCmd = framework.DevCmd
+					frontendConfig.BuildCmd = framework.BuildCmd
+					frontendConfig.TypesDir = framework.TypesDir
+					frontendConfig.LibDir = framework.LibDir
+					frontendConfig.Template.Source = framework.Script
+					break
+				}
 			}
-			if template.BuildCmd != "" {
-				frontendConfig.BuildCmd = template.BuildCmd
-			}
-			if template.TypesDir != "" {
-				frontendConfig.TypesDir = template.TypesDir
-			}
-			if template.LibDir != "" {
-				frontendConfig.LibDir = template.LibDir
-			}
-			// Use template's StaticGen config
-			frontendConfig.StaticGen = template.StaticGen
 		}
 	}
 
 	return frontendConfig
 }
 
-func selectFrontendInteractive(frontendManager *frontend.Manager) (config.FrontendConfig, error) {
-	// First, ask for template type
-	var templateType string
-	templatePrompt := &survey.Select{
+func selectFrontendInteractive(unifiedManager *frontend.UnifiedManager) (config.FrontendConfig, error) {
+	// First, ask for frontend type
+	var frontendType string
+	typePrompt := &survey.Select{
 		Message: "Choose frontend generation method:",
 		Options: []string{
-			"Hardcoded Template (File-based)",
-			"Script Template (Install command)",
-			// "Custom Command",
-			// "Remote Template (GitHub/Local)",
+			"Template-based (Built into backend template)",
+			"Script-based (Popular frameworks via package managers)",
+			"Custom Command",
 		},
-		Default: "Hardcoded Template (File-based)",
+		Default: "Template-based (Built into backend template)",
 	}
-	if err := survey.AskOne(templatePrompt, &templateType); err != nil {
+	if err := survey.AskOne(typePrompt, &frontendType); err != nil {
 		return config.FrontendConfig{}, err
 	}
 
 	switch {
-	case strings.Contains(templateType, "Hardcoded"):
-		return selectHardcodedTemplate(frontendManager)
-	case strings.Contains(templateType, "Script"):
-		return selectScriptTemplate(frontendManager)
-	// case strings.Contains(templateType, "Custom"):
-	// 	return selectCustomTemplate()
-	// case strings.Contains(templateType, "Remote"):
-	// 	return selectRemoteTemplate()
+	case strings.Contains(frontendType, "Template-based"):
+		return selectTemplateFrontend(unifiedManager)
+	case strings.Contains(frontendType, "Script-based"):
+		return selectScriptFrontend(unifiedManager)
+	case strings.Contains(frontendType, "Custom"):
+		return selectCustomFrontend()
 	default:
-		return selectHardcodedTemplate(frontendManager)
+		return selectTemplateFrontend(unifiedManager)
 	}
 }
 
-func selectHardcodedTemplate(frontendManager *frontend.Manager) (config.FrontendConfig, error) {
-	// Get all templates and filter for hardcoded ones (no install command)
-	allTemplates := frontendManager.GetTemplateRegistry().GetAllTemplates()
-	var hardcodedTemplates []string
-	var templateDescriptions []string
-
-	for name, template := range allTemplates {
-		if template.InstallCmd == "" { // Hardcoded = no install command
-			hardcodedTemplates = append(hardcodedTemplates, name)
-			templateDescriptions = append(templateDescriptions, fmt.Sprintf("%s - %s", name, template.Description))
-		}
-	}
-
-	if len(hardcodedTemplates) == 0 {
-		return config.FrontendConfig{}, fmt.Errorf("no hardcoded templates available")
-	}
-
-	var selectedTemplate string
-	prompt := &survey.Select{
-		Message: "Choose hardcoded template:",
-		Options: templateDescriptions,
-		Default: "default - " + allTemplates["default"].Description,
-	}
-	if err := survey.AskOne(prompt, &selectedTemplate); err != nil {
+func selectTemplateFrontend(unifiedManager *frontend.UnifiedManager) (config.FrontendConfig, error) {
+	supportedFrontends, _, err := unifiedManager.GetSupportedFrontends()
+	if err != nil {
 		return config.FrontendConfig{}, err
 	}
 
-	// Extract template name from "name - description" format
-	templateName := strings.Split(selectedTemplate, " - ")[0]
-
-	// Get the template to use all its fields
-	template := allTemplates[templateName]
-
-	// Use template fields with fallbacks
-	devCmd := template.DevCmd
-	if devCmd == "" {
-		devCmd = "cd frontend && pnpm dev --port {{port}} --host"
+	if len(supportedFrontends) == 0 {
+		return config.FrontendConfig{}, fmt.Errorf("no template-based frontends available")
 	}
 
-	buildCmd := template.BuildCmd
-	if buildCmd == "" {
-		buildCmd = "cd frontend && pnpm build"
+	var frontendOptions []string
+	for _, frontend := range supportedFrontends {
+		frontendOptions = append(frontendOptions, fmt.Sprintf("%s - %s", frontend.Name, frontend.Description))
 	}
 
-	typesDir := template.TypesDir
-	if typesDir == "" {
-		typesDir = "src/types"
-	}
-
-	libDir := template.LibDir
-	if libDir == "" {
-		libDir = "src/lib"
-	}
-
-	return config.FrontendConfig{
-		Framework: templateName,
-		DevCmd:    devCmd,
-		BuildCmd:  buildCmd,
-		TypesDir:  typesDir,
-		LibDir:    libDir,
-		Template: config.TemplateConfig{
-			Type:   "hardcoded",
-			Source: templateName,
-		},
-		StaticGen: template.StaticGen, // Use entire StaticGen config from template
-	}, nil
-}
-
-func selectScriptTemplate(frontendManager *frontend.Manager) (config.FrontendConfig, error) {
-	// Get all templates and filter for script ones (have install command)
-	allTemplates := frontendManager.GetTemplateRegistry().GetAllTemplates()
-	var scriptTemplates []string
-	var templateDescriptions []string
-
-	for name, template := range allTemplates {
-		if template.InstallCmd != "" { // Script = has install command
-			scriptTemplates = append(scriptTemplates, name)
-			templateDescriptions = append(templateDescriptions, fmt.Sprintf("%s - %s", name, template.Description))
-		}
-	}
-
-	if len(scriptTemplates) == 0 {
-		return config.FrontendConfig{}, fmt.Errorf("no script templates available")
-	}
-
-	var selectedTemplate string
+	var selectedFrontend string
 	prompt := &survey.Select{
-		Message: "Choose script template:",
-		Options: templateDescriptions,
+		Message: "Choose template frontend:",
+		Options: frontendOptions,
+		Default: frontendOptions[0],
 	}
-	if err := survey.AskOne(prompt, &selectedTemplate); err != nil {
+	if err := survey.AskOne(prompt, &selectedFrontend); err != nil {
 		return config.FrontendConfig{}, err
 	}
 
-	// Extract template name from "name - description" format
-	templateName := strings.Split(selectedTemplate, " - ")[0]
+	// Extract frontend name
+	frontendName := strings.Split(selectedFrontend, " - ")[0]
 
-	// Get the template to use all its fields
-	template := allTemplates[templateName]
-
-	// Use template fields with fallbacks
-	devCmd := template.DevCmd
-	if devCmd == "" {
-		devCmd = "cd frontend && pnpm dev --port {{port}} --host"
+	// Find the selected frontend
+	for _, frontend := range supportedFrontends {
+		if frontend.Name == frontendName {
+			return config.FrontendConfig{
+				Framework: frontend.Framework,
+				DevCmd:    frontend.DevCmd,
+				BuildCmd:  frontend.BuildCmd,
+				TypesDir:  frontend.TypesDir,
+				LibDir:    frontend.LibDir,
+				Template: config.TemplateConfig{
+					Type:   "template",
+					Source: frontend.Name,
+				},
+				StaticGen: frontend.StaticGen,
+			}, nil
+		}
 	}
 
-	buildCmd := template.BuildCmd
-	if buildCmd == "" {
-		buildCmd = "cd frontend && pnpm build"
-	}
-
-	typesDir := template.TypesDir
-	if typesDir == "" {
-		typesDir = "src/types"
-	}
-
-	libDir := template.LibDir
-	if libDir == "" {
-		libDir = "src/lib"
-	}
-
-	return config.FrontendConfig{
-		Framework: templateName,
-		DevCmd:    devCmd,
-		BuildCmd:  buildCmd,
-		TypesDir:  typesDir,
-		LibDir:    libDir,
-		Template: config.TemplateConfig{
-			Type:   "hardcoded", // Still hardcoded type, but with install command
-			Source: templateName,
-		},
-		StaticGen: template.StaticGen, // Use entire StaticGen config from template
-	}, nil
+	return config.FrontendConfig{}, fmt.Errorf("frontend %s not found", frontendName)
 }
 
-func selectCustomTemplate() (config.FrontendConfig, error) {
+func selectScriptFrontend(unifiedManager *frontend.UnifiedManager) (config.FrontendConfig, error) {
+	// Check if script frontends are supported
+	_, scriptSupported, err := unifiedManager.GetSupportedFrontends()
+	if err != nil {
+		return config.FrontendConfig{}, err
+	}
+
+	if !scriptSupported {
+		return config.FrontendConfig{}, fmt.Errorf("script-based frontends are not supported by the current template")
+	}
+
+	// Get script categories
+	categories := unifiedManager.GetScriptCategories()
+	if len(categories) == 0 {
+		return config.FrontendConfig{}, fmt.Errorf("no script frontends available")
+	}
+
+	// First select category
+	var categoryNames []string
+	for _, category := range categories {
+		categoryNames = append(categoryNames, category.Name)
+	}
+
+	var selectedCategory string
+	categoryPrompt := &survey.Select{
+		Message: "Choose frontend category:",
+		Options: categoryNames,
+		Default: "React",
+	}
+	if err := survey.AskOne(categoryPrompt, &selectedCategory); err != nil {
+		return config.FrontendConfig{}, err
+	}
+
+	// Get frameworks for selected category
+	var selectedCategoryFrameworks []frontend.ScriptFramework
+	for _, category := range categories {
+		if category.Name == selectedCategory {
+			selectedCategoryFrameworks = category.Frameworks
+			break
+		}
+	}
+
+	if len(selectedCategoryFrameworks) == 0 {
+		return config.FrontendConfig{}, fmt.Errorf("no frameworks found in category %s", selectedCategory)
+	}
+
+	// Select framework
+	var frameworkOptions []string
+	for _, framework := range selectedCategoryFrameworks {
+		frameworkOptions = append(frameworkOptions, fmt.Sprintf("%s - %s", framework.DisplayName, framework.Description))
+	}
+
+	var selectedFramework string
+	frameworkPrompt := &survey.Select{
+		Message: "Choose framework:",
+		Options: frameworkOptions,
+		Default: frameworkOptions[0],
+	}
+	if err := survey.AskOne(frameworkPrompt, &selectedFramework); err != nil {
+		return config.FrontendConfig{}, err
+	}
+
+	// Extract framework name and find the framework
+	displayName := strings.Split(selectedFramework, " - ")[0]
+	for _, framework := range selectedCategoryFrameworks {
+		if framework.DisplayName == displayName {
+			return config.FrontendConfig{
+				Framework: framework.Framework,
+				DevCmd:    framework.DevCmd,
+				BuildCmd:  framework.BuildCmd,
+				TypesDir:  framework.TypesDir,
+				LibDir:    framework.LibDir,
+				Template: config.TemplateConfig{
+					Type:   "script",
+					Source: framework.Script,
+				},
+				StaticGen: config.StaticGenConfig{
+					Enabled:    false,
+					SPARouting: true,
+				},
+			}, nil
+		}
+	}
+
+	return config.FrontendConfig{}, fmt.Errorf("framework not found")
+}
+
+func selectCustomFrontend() (config.FrontendConfig, error) {
 	var command string
 	commandPrompt := &survey.Input{
 		Message: "Enter custom command:",
@@ -391,54 +509,7 @@ func selectCustomTemplate() (config.FrontendConfig, error) {
 	}, nil
 }
 
-func selectRemoteTemplate() (config.FrontendConfig, error) {
-	var url string
-	urlPrompt := &survey.Input{
-		Message: "Enter template URL or local path:",
-		Help:    "GitHub URL (e.g., https://github.com/user/template) or local path",
-	}
-	if err := survey.AskOne(urlPrompt, &url); err != nil {
-		return config.FrontendConfig{}, err
-	}
-
-	var version string
-	versionPrompt := &survey.Input{
-		Message: "Version/branch (optional):",
-		Default: "main",
-	}
-	if err := survey.AskOne(versionPrompt, &version); err != nil {
-		return config.FrontendConfig{}, err
-	}
-
-	var useCache bool
-	cachePrompt := &survey.Confirm{
-		Message: "Cache template locally?",
-		Default: true,
-	}
-	if err := survey.AskOne(cachePrompt, &useCache); err != nil {
-		return config.FrontendConfig{}, err
-	}
-
-	return config.FrontendConfig{
-		Framework: "remote",
-		DevCmd:    "cd frontend && pnpm dev --port {{port}} --host",
-		BuildCmd:  "cd frontend && pnpm build",
-		TypesDir:  "src/types",
-		LibDir:    "src/lib",
-		Template: config.TemplateConfig{
-			Type:    "remote",
-			URL:     url,
-			Version: version,
-			Cache:   useCache,
-		},
-		StaticGen: config.StaticGenConfig{
-			Enabled:    false,
-			SPARouting: true,
-		},
-	}, nil
-}
-
-func generateProjectConfig(name string, frontendConfig config.FrontendConfig, backend string) config.ProjectConfig {
+func generateProjectConfig(name string, frontendConfig config.FrontendConfig, backend, templateName string, tempConfig *config.ProjectConfig) config.ProjectConfig {
 	// Determine the appropriate static directory based on frontend framework
 	staticDir := "frontend/dist" // Default for most frameworks
 
@@ -452,7 +523,8 @@ func generateProjectConfig(name string, frontendConfig config.FrontendConfig, ba
 		Port:     3000,
 		Frontend: frontendConfig,
 		Backend: config.BackendConfig{
-			Router: backend,
+			Router:   backend,
+			Template: templateName,
 		},
 		Build: config.BuildConfig{
 			OutputDir:   "dist",
@@ -463,6 +535,7 @@ func generateProjectConfig(name string, frontendConfig config.FrontendConfig, ba
 			LDFlags:     "-s -w",
 			CGOEnabled:  false,
 		},
+		ExternalTemplate: tempConfig.ExternalTemplate,
 	}
 }
 
@@ -475,34 +548,78 @@ func writeConfig(path string, cfg config.ProjectConfig) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func createProjectStructure(projectName, backend string, debug bool) error {
-	fmt.Printf("📦 Generating project from templates...\n")
+func createProjectStructure(projectName, templateName, backend string, debug bool) error {
+	fmt.Printf("📦 Generating project from template '%s'...\n", templateName)
 
-	// Use template system to generate the base project structure
-	if err := templates.GenerateProject(projectName, projectName, backend); err != nil {
-		return fmt.Errorf("failed to generate project from templates: %w", err)
+	// Get template manager and generate project
+	templateManager, err := templates.GetTemplateManager()
+	if err != nil {
+		return fmt.Errorf("failed to get template manager: %w", err)
 	}
 
-	// Frontend will be generated during dev command using the new system
-	fmt.Printf("📦 Frontend will be set up when you run 'flux dev'...\n")
+	customVars := make(map[string]interface{})
+	if err := templateManager.GenerateProject(templateName, projectName, projectName, backend, customVars); err != nil {
+		return fmt.Errorf("failed to generate project from template: %w", err)
+	}
 
+	fmt.Printf("📦 Backend structure created. Frontend will be set up when you run 'flux dev'...\n")
 	return nil
 }
 
-func shouldSetupFrontendDuringCreation(frontendConfig config.FrontendConfig, projectConfig *config.ProjectConfig) bool {
-	// Only setup during creation for hardcoded templates that use filesystem copying
-	if frontendConfig.Template.Type != "hardcoded" {
-		return false
+func shouldSetupFrontendDuringCreation(frontendConfig config.FrontendConfig) bool {
+	// Only setup during creation for template-based frontends
+	// Script and custom frontends should be generated during dev command
+	return frontendConfig.Template.Type == "template" || frontendConfig.Template.Type == ""
+}
+
+func loadExternalTemplate(source string) (*templates.TemplateManifest, error) {
+	// Check if it's a local path
+	if strings.HasPrefix(source, "/") || strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
+		// Local path - look for template.yaml
+		templatePath := filepath.Join(source, "template.yaml")
+		data, err := os.ReadFile(templatePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read template.yaml from %s: %w", templatePath, err)
+		}
+
+		return templates.LoadTemplateFromData(data)
 	}
 
-	// Create a temporary frontend manager to check template properties
-	frontendManager := frontend.NewManager(projectConfig, false)
-	allTemplates := frontendManager.GetTemplateRegistry().GetAllTemplates()
+	// Check if it's a GitHub URL
+	if strings.Contains(source, "github.com") {
+		// Extract owner/repo from URL
+		parts := strings.Split(source, "/")
+		if len(parts) < 5 {
+			return nil, fmt.Errorf("invalid GitHub URL format. Expected: https://github.com/owner/repo")
+		}
 
-	if template, exists := allTemplates[frontendConfig.Template.Source]; exists {
-		// Setup during creation only if template has no install command (filesystem template)
-		return template.InstallCmd == ""
+		owner := parts[3]
+		repo := parts[4]
+
+		// Try to fetch template.yaml from main branch first, then master
+		branches := []string{"main", "master"}
+
+		for _, branch := range branches {
+			templateURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/template.yaml", owner, repo, branch)
+
+			resp, err := http.Get(templateURL)
+			if err != nil {
+				continue
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				data, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read template.yaml: %w", err)
+				}
+
+				return templates.LoadTemplateFromData(data)
+			}
+		}
+
+		return nil, fmt.Errorf("could not find template.yaml in repository %s/%s (tried main and master branches)", owner, repo)
 	}
 
-	return false
+	return nil, fmt.Errorf("unsupported template source format. Use GitHub URL (https://github.com/owner/repo) or local path")
 }

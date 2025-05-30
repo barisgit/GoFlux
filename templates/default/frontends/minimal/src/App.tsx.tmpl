@@ -1,0 +1,25 @@
+import { useState, useEffect } from 'react'
+
+function App() {
+  const [message, setMessage] = useState<string>('')
+
+  useEffect(() => {
+    // Test API connection
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(data => setMessage(data.message || 'Connected to {{.ProjectName}} API'))
+      .catch(() => setMessage('Welcome to {{.ProjectName}}'))
+  }, [])
+
+  return (
+    <div style={{ padding: '2rem', fontFamily: 'system-ui' }}>
+      <h1>{{.ProjectName}}</h1>
+      <p>{message}</p>
+      <p>
+        Edit <code>src/App.tsx</code> to get started.
+      </p>
+    </div>
+  )
+}
+
+export default App 

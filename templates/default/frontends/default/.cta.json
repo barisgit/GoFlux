@@ -4,7 +4,7 @@
   "typescript": true,
   "tailwind": true,
   "packageManager": "pnpm",
-  "git": true,
+  "git": false,
   "version": 1,
   "framework": "react-cra",
   "chosenAddOns": []

@@ -1,0 +1,57 @@
+name: "Default GoFlux Backend"
+description: "Standard GoFlux backend with support for multiple routers"
+url: "https://github.com/barisgit/goflux"
+version: "1.0.0"
+backend:
+  supported_routers:
+    - "chi"
+    - "fiber"
+    - "gin"
+    - "echo"
+    - "gorilla"
+    - "mux"
+    - "fasthttp"
+  features:
+    - "api"
+    - "static_files"
+    - "cors"
+frontend:
+  enable_script_frontends: true # Enable script-based frontends
+  options:
+    - name: "default"
+      description: "TanStack Router with React and Tailwind CSS"
+      framework: "tanstack-router"
+      dev_cmd: "cd frontend && pnpm dev --port {{port}} --host"
+      build_cmd: "cd frontend && pnpm build"
+      types_dir: "src/types"
+      lib_dir: "src/lib"
+      static_gen:
+        enabled: false
+        build_ssr_cmd: ""
+        generate_cmd: ""
+        routes: []
+    - name: "minimal"
+      description: "Minimal TypeScript setup with basic React"
+      framework: "minimal"
+      dev_cmd: "cd frontend && pnpm dev --port {{port}} --host"
+      build_cmd: "cd frontend && pnpm build"
+      types_dir: "src/types"
+      lib_dir: "src/lib"
+      static_gen:
+        enabled: false
+        build_ssr_cmd: ""
+        generate_cmd: ""
+        routes: []
+template_variables: # Additional variables for the template (user will be asked to fill these)
+  - name: "ProjectName"
+    type: "string"
+    description: "The name of the project"
+    default: "MyProject"
+  - name: "ProjectDescription"
+    type: "select"
+    options:
+      - name: "default"
+        description: "Standard GoFlux backend with Gorilla Mux router"
+      - name: "minimal"
+        description: "Minimal GoFlux backend with minimal router"
+    default: "default"

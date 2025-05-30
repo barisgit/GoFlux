@@ -27,7 +27,7 @@ make dev
 Visit:
 - **Application**: http://localhost:3000 (proxy)
 - **Frontend**: http://localhost:3001 (direct)  
-- **Backend**: http://localhost:{{.BackendPort}} (direct)
+- **Backend**: http://localhost:{{.Port}} (direct)
 - **API**: http://localhost:3001/api/health
 - **API Docs**: http://localhost:3000/api/docs
 
@@ -81,7 +81,7 @@ frontend:
     enabled: true
     spa_routing: true
 backend:
-  port: "{{.BackendPort}}"
+  port: "{{.Port}}"
   router: {{.Router}}
 build:
   output_dir: dist

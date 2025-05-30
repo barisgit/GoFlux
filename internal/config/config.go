@@ -7,11 +7,12 @@ import (
 )
 
 type ProjectConfig struct {
-	Name     string         `yaml:"name"`
-	Port     int            `yaml:"port"`
-	Frontend FrontendConfig `yaml:"frontend"`
-	Backend  BackendConfig  `yaml:"backend"`
-	Build    BuildConfig    `yaml:"build"`
+	Name             string                  `yaml:"name"`
+	Port             int                     `yaml:"port"`
+	Frontend         FrontendConfig          `yaml:"frontend"`
+	Backend          BackendConfig           `yaml:"backend"`
+	Build            BuildConfig             `yaml:"build"`
+	ExternalTemplate *ExternalTemplateConfig `yaml:"external_template,omitempty"`
 }
 
 type FrontendConfig struct {
@@ -50,7 +51,8 @@ type StaticGenConfig struct {
 }
 
 type BackendConfig struct {
-	Router string `yaml:"router"`
+	Router   string `yaml:"router"`
+	Template string `yaml:"template,omitempty"` // Backend template name
 }
 
 type BuildConfig struct {
@@ -61,6 +63,14 @@ type BuildConfig struct {
 	BuildTags   string `yaml:"build_tags"`
 	LDFlags     string `yaml:"ldflags"`
 	CGOEnabled  bool   `yaml:"cgo_enabled"`
+}
+
+// ExternalTemplateConfig holds information about external templates
+type ExternalTemplateConfig struct {
+	Source      string `yaml:"source"`                // GitHub URL or local path
+	Name        string `yaml:"name"`                  // Template name from template.yaml
+	Description string `yaml:"description"`           // Template description
+	CachedPath  string `yaml:"cached_path,omitempty"` // Local cache path
 }
 
 func ReadConfig(path string) (*ProjectConfig, error) {
