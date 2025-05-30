@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"fmt"
-	"goflux/internal/config"
-	"goflux/internal/frontend"
-	"goflux/internal/templates"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/barisgit/goflux/internal/config"
+	"github.com/barisgit/goflux/internal/frontend"
+	"github.com/barisgit/goflux/internal/templates"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/cobra"

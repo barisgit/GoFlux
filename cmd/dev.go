@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"goflux/internal/config"
-	"goflux/internal/dev"
 	"os"
+
+	"github.com/barisgit/goflux/internal/config"
+	"github.com/barisgit/goflux/internal/dev"
 
 	"github.com/spf13/cobra"
 )

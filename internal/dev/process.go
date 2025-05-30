@@ -2,13 +2,8 @@ package dev
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
-	"goflux/internal/typegen/analyzer"
-	"goflux/internal/typegen/generator"
-	"io"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +11,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/barisgit/goflux/internal/typegen/analyzer"
+	"github.com/barisgit/goflux/internal/typegen/generator"
 
 	"github.com/creack/pty"
 )
@@ -119,7 +117,7 @@ func (o *DevOrchestrator) restartBackend() error {
 }
 
 func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
-	o.log("📋 Fetching OpenAPI specification...", "\x1b[36m")
+	o.log("📋 Generating OpenAPI specification directly...", "\x1b[36m")
 
 	// Create build directory if it doesn't exist
 	buildDir := "build"
@@ -127,67 +125,50 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 		return fmt.Errorf("failed to create build directory: %w", err)
 	}
 
-	// Fetch OpenAPI spec from the server
-	openAPIURL := fmt.Sprintf("http://localhost:%d/api/openapi.json", o.backendPort)
+	// Generate OpenAPI spec using the built-in command
+	outputPath := filepath.Join(buildDir, "openapi.json")
+	cmd := exec.Command("go", "run", "./cmd/server", "openapi", "-o", outputPath)
 
-	// Wait a bit more to ensure the server is fully ready
-	time.Sleep(1 * time.Second)
+	// Capture output for debugging
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	resp, err := http.Get(openAPIURL)
-	if err != nil {
-		return fmt.Errorf("failed to fetch OpenAPI spec from %s: %w", openAPIURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status %d when fetching OpenAPI spec", resp.StatusCode)
-	}
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read OpenAPI response: %w", err)
-	}
-
-	// Validate it's valid JSON
-	var openAPISpec map[string]interface{}
-	if err := json.Unmarshal(body, &openAPISpec); err != nil {
-		return fmt.Errorf("invalid OpenAPI JSON received: %w", err)
-	}
-
-	// Save to build/openapi.json
-	openAPIPath := filepath.Join(buildDir, "openapi.json")
-	if err := os.WriteFile(openAPIPath, body, 0644); err != nil {
-		return fmt.Errorf("failed to save OpenAPI spec to %s: %w", openAPIPath, err)
-	}
-
-	o.log(fmt.Sprintf("✅ OpenAPI spec saved to %s", openAPIPath), "\x1b[32m")
-
-	// Log some info about what we found
-	if info, ok := openAPISpec["info"].(map[string]interface{}); ok {
-		if title, ok := info["title"].(string); ok {
-			o.log(fmt.Sprintf("📖 API Title: %s", title), "\x1b[36m")
-		}
-		if version, ok := info["version"].(string); ok {
-			o.log(fmt.Sprintf("🏷️  API Version: %s", version), "\x1b[36m")
-		}
-	}
-
-	if paths, ok := openAPISpec["paths"].(map[string]interface{}); ok {
-		routeCount := 0
-		for path := range paths {
-			if pathItem, ok := paths[path].(map[string]interface{}); ok {
-				// Count HTTP methods in this path
-				for method := range pathItem {
-					if method == "get" || method == "post" || method == "put" || method == "delete" || method == "patch" {
-						routeCount++
-					}
-				}
+	if err := cmd.Run(); err != nil {
+		o.log("⚠️  Warning: Could not generate OpenAPI spec directly", "\x1b[33m")
+		if o.debug {
+			o.log(fmt.Sprintf("OpenAPI generation error: %v", err), "\x1b[31m")
+			if stderr.String() != "" {
+				o.log(fmt.Sprintf("Stderr: %s", stderr.String()), "\x1b[31m")
 			}
 		}
-		o.log(fmt.Sprintf("🛣️  Found %d API routes", routeCount), "\x1b[36m")
+		return fmt.Errorf("failed to generate OpenAPI spec: %w", err)
 	}
 
+	// Log success and any output
+	if stdout.String() != "" {
+		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				o.log(line, "\x1b[36m")
+			}
+		}
+	}
+
+	o.log(fmt.Sprintf("✅ OpenAPI spec saved to %s", outputPath), "\x1b[32m")
+	return nil
+}
+
+func (o *DevOrchestrator) generateStaticFiles() error {
+	o.log("🔧 Generating static handler files...", "\x1b[36m")
+
+	// Generate static handler files for both dev and production
+	if err := generator.GenerateStaticFiles(o.config.Frontend.StaticGen.SPARouting); err != nil {
+		o.log("❌ Failed to generate static handler files", "\x1b[31m")
+		return fmt.Errorf("static files generation failed: %w", err)
+	}
+
+	o.log("✅ Static handler files generated", "\x1b[32m")
 	return nil
 }
 

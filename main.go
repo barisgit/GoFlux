@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"goflux/cmd"
+	"github.com/barisgit/goflux/cmd"
 )
 
 var version = "0.1.0"

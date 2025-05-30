@@ -2,15 +2,18 @@ package cmd
 
 import (
 	"fmt"
-	"goflux/internal/config"
-	"goflux/internal/typegen/analyzer"
-	"goflux/internal/typegen/generator"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/barisgit/goflux/internal/typegen/analyzer"
+
+	"github.com/barisgit/goflux/internal/typegen/generator"
+
+	"github.com/barisgit/goflux/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -93,23 +96,23 @@ func (b *BuildOrchestrator) Build(forLinux, cleanFirst bool) error {
 		return err
 	}
 
-	// Step 2: Generate TypeScript types from Go/OpenAPI
-	if err := b.generateTypes(); err != nil {
-		return err
-	}
-
-	// Step 3: Build frontend
-	if err := b.buildFrontend(); err != nil {
-		return err
-	}
-
-	// Step 4: Generate static HTML files (if supported)
+	// Step 2: Generate static handler files (needed before OpenAPI generation)
 	if err := b.generateStaticFiles(); err != nil {
 		return err
 	}
 
-	// Step 5: Generate smart static handler
-	if err := b.generateStaticHandler(); err != nil {
+	// Step 3: Generate TypeScript types from Go/OpenAPI
+	if err := b.generateTypes(); err != nil {
+		return err
+	}
+
+	// Step 4: Build frontend
+	if err := b.buildFrontend(); err != nil {
+		return err
+	}
+
+	// Step 5: Generate static HTML files (if supported)
+	if err := b.generateStaticSiteFiles(); err != nil {
 		return err
 	}
 
@@ -300,6 +303,23 @@ func (b *BuildOrchestrator) buildFrontend() error {
 }
 
 func (b *BuildOrchestrator) generateStaticFiles() error {
+	b.log("🔧 Generating static handler files...", "\x1b[36m")
+
+	// Generate static handler files for both dev and production
+	if err := generator.GenerateStaticFiles(b.config.Frontend.StaticGen.SPARouting); err != nil {
+		b.log("⚠️  Warning: Could not generate static handler files", "\x1b[33m")
+		if b.debug {
+			b.log(fmt.Sprintf("Static files generation error: %v", err), "\x1b[31m")
+		}
+		return fmt.Errorf("static files generation failed: %w", err)
+	}
+
+	b.log("✅ Static handler files generated", "\x1b[32m")
+	fmt.Println()
+	return nil
+}
+
+func (b *BuildOrchestrator) generateStaticSiteFiles() error {
 	if !b.config.Frontend.StaticGen.Enabled {
 		b.log("📄 Static site generation disabled, skipping...", "\x1b[36m")
 		fmt.Println()
@@ -346,21 +366,8 @@ func (b *BuildOrchestrator) generateStaticFiles() error {
 }
 
 func (b *BuildOrchestrator) generateStaticHandler() error {
-	b.log("🔧 Generating smart static handler...", "\x1b[36m")
-
-	// Generate smart static handler
-	if err := generator.GenerateStaticHandler(b.config.Frontend.StaticGen.SPARouting); err != nil {
-		b.log("⚠️  Warning: Could not generate smart static handler", "\x1b[33m")
-		if b.debug {
-			b.log(fmt.Sprintf("Static handler generation error: %v", err), "\x1b[31m")
-		}
-		b.log("Continuing build with basic static serving...", "\x1b[36m")
-		fmt.Println()
-		return nil
-	}
-
-	b.log("✅ Smart static handler generated", "\x1b[32m")
-	fmt.Println()
+	// This method is now redundant since generateStaticFiles handles everything
+	// Keeping for backward compatibility but it does nothing
 	return nil
 }
 
@@ -437,7 +444,7 @@ func (b *BuildOrchestrator) buildGoBinary(forLinux bool) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Go build failed: %w", err)
+		return fmt.Errorf("go build failed: %w", err)
 	}
 
 	// Clean up copied frontend files
@@ -450,7 +457,7 @@ func (b *BuildOrchestrator) buildGoBinary(forLinux bool) error {
 
 func (b *BuildOrchestrator) copyFrontendForEmbedding() error {
 	frontendDistPath := "frontend/dist"
-	staticPath := "cmd/server/static"
+	staticPath := "internal/static/assets"
 
 	// Remove existing static directory if it exists
 	if err := os.RemoveAll(staticPath); err != nil && !os.IsNotExist(err) {
@@ -477,12 +484,12 @@ func (b *BuildOrchestrator) copyFrontendForEmbedding() error {
 
 	b.log("📁 Copying frontend files for embedding...", "\x1b[36m")
 
-	// Copy frontend/dist to cmd/server/static
+	// Copy frontend/dist to internal/static/assets
 	return b.copyDir(frontendDistPath, staticPath)
 }
 
 func (b *BuildOrchestrator) cleanupFrontendCopy() {
-	staticPath := "cmd/server/static"
+	staticPath := "internal/static/assets"
 	if err := os.RemoveAll(staticPath); err != nil {
 		b.log("⚠️  Warning: Could not clean up copied frontend files", "\x1b[33m")
 	}
@@ -567,87 +574,16 @@ func (b *BuildOrchestrator) ensureOpenAPISpec() error {
 		}
 	}
 
-	// No existing spec found, try to generate one
-	b.log("📋 No OpenAPI spec found, generating from server...", "\x1b[36m")
+	// No existing spec found, try to generate one directly
+	b.log("📋 No OpenAPI spec found, generating directly...", "\x1b[36m")
 
-	return b.generateOpenAPIFromServer()
+	return b.generateOpenAPIDirectly()
 }
 
-func (b *BuildOrchestrator) generateOpenAPIFromServer() error {
+func (b *BuildOrchestrator) generateOpenAPIDirectly() error {
 	// Check if we have a cmd/server directory
 	if _, err := os.Stat("cmd/server/main.go"); os.IsNotExist(err) {
 		return fmt.Errorf("no cmd/server/main.go found, cannot generate OpenAPI spec")
-	}
-
-	b.log("🚀 Starting server temporarily to generate OpenAPI spec...", "\x1b[36m")
-
-	// Build the server first
-	cmd := exec.Command("go", "build", "-o", "temp_server", "./cmd/server")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to build server: %w", err)
-	}
-	defer os.Remove("temp_server") // Clean up
-
-	// Start the server in background
-	serverCmd := exec.Command("./temp_server", "--dev", "--port", fmt.Sprintf("%d", b.config.Port))
-	if err := serverCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start server: %w", err)
-	}
-	defer func() {
-		if serverCmd.Process != nil {
-			serverCmd.Process.Kill()
-			serverCmd.Wait()
-		}
-	}()
-
-	// Wait for server to be ready
-	if err := b.waitForServer(); err != nil {
-		return err
-	}
-
-	// Fetch OpenAPI spec
-	if err := b.fetchOpenAPISpec(); err != nil {
-		return err
-	}
-
-	b.log("✅ OpenAPI spec generated successfully", "\x1b[32m")
-	fmt.Println()
-	return nil
-}
-
-func (b *BuildOrchestrator) waitForServer() error {
-	url := fmt.Sprintf("http://localhost:%d/api/health", b.config.Port)
-
-	for i := 0; i < 30; i++ { // Wait up to 30 seconds
-		time.Sleep(1 * time.Second)
-
-		resp, err := http.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			b.log("✅ Server is ready", "\x1b[32m")
-			return nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-	}
-
-	return fmt.Errorf("server did not become ready within 30 seconds")
-}
-
-func (b *BuildOrchestrator) fetchOpenAPISpec() error {
-	url := fmt.Sprintf("http://localhost:%d/api/openapi.json", b.config.Port)
-
-	b.log("📥 Fetching OpenAPI spec from "+url, "\x1b[36m")
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to fetch OpenAPI spec: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("server returned status %d when fetching OpenAPI spec", resp.StatusCode)
 	}
 
 	// Create build directory if it doesn't exist
@@ -655,17 +591,39 @@ func (b *BuildOrchestrator) fetchOpenAPISpec() error {
 		return fmt.Errorf("failed to create build directory: %w", err)
 	}
 
-	// Save to build/openapi.json
-	outFile, err := os.Create("build/openapi.json")
-	if err != nil {
-		return fmt.Errorf("failed to create OpenAPI spec file: %w", err)
-	}
-	defer outFile.Close()
+	b.log("🔧 Generating OpenAPI spec using built-in command...", "\x1b[36m")
 
-	if _, err := outFile.ReadFrom(resp.Body); err != nil {
-		return fmt.Errorf("failed to save OpenAPI spec: %w", err)
+	// Generate OpenAPI spec using the built-in command
+	outputPath := "build/openapi.json"
+	cmd := exec.Command("go", "run", "./cmd/server", "openapi", "-o", outputPath)
+
+	// Capture output for debugging
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		b.log("⚠️  Warning: Could not generate OpenAPI spec directly", "\x1b[33m")
+		if b.debug {
+			b.log(fmt.Sprintf("OpenAPI generation error: %v", err), "\x1b[31m")
+			if stderr.String() != "" {
+				b.log(fmt.Sprintf("Stderr: %s", stderr.String()), "\x1b[31m")
+			}
+		}
+		return fmt.Errorf("failed to generate OpenAPI spec: %w", err)
 	}
 
-	b.log("💾 Saved OpenAPI spec to build/openapi.json", "\x1b[36m")
+	// Log success and any output
+	if stdout.String() != "" {
+		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				b.log(line, "\x1b[36m")
+			}
+		}
+	}
+
+	b.log("✅ OpenAPI spec generated successfully", "\x1b[32m")
+	fmt.Println()
 	return nil
 }

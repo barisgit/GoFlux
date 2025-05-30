@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"goflux/internal/config"
+	"github.com/barisgit/goflux/internal/config"
 )
 
 // TemplateInfo contains metadata about a frontend template

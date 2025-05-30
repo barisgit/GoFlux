@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	"goflux/internal/config"
+	"github.com/barisgit/goflux/internal/config"
 )
 
 // Generator interface defines how frontend templates are generated

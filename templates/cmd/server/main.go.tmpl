@@ -8,6 +8,7 @@ import (
 	"strconv"
 	apiinternal "{{.ModuleName}}/internal/api"
 	"{{.ModuleName}}/internal/db"
+	"{{.ModuleName}}/internal/static"
 
 	"github.com/danielgtaylor/huma/v2"
 	{{if eq .Router "Chi (Recommended)"}}
@@ -34,6 +35,9 @@ import (
 
 	// Import CBOR support for binary content negotiation
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
+	
+	// Import GoFlux framework
+	goflux "github.com/barisgit/goflux/pkg"
 )
 
 // Options for the CLI - allows configuration via flags or environment variables
@@ -224,14 +228,14 @@ func main() {
 		// Serve static files (frontend assets) - handled by GoFlux CLI
 		// Only in production mode, development uses proxy
 		if !options.Dev {
-			router.Handle("/*", getEmbeddedStaticHandler())
+			router.Handle("/*", static.GetEmbeddedHandler())
 		}
 		{{else if eq .Router "Fiber"}}
 		// Serve static files (frontend assets) - handled by GoFlux CLI  
 		// Only in production mode, development uses proxy
 		if !options.Dev {
 			app.Use("/*", func(c *fiber.Ctx) error {
-				getEmbeddedStaticHandler().ServeHTTP(c.Response().BodyWriter(), c.Request())
+				static.GetEmbeddedHandler().ServeHTTP(c.Response().BodyWriter(), c.Request())
 				return nil
 			})
 		}
@@ -240,7 +244,7 @@ func main() {
 		// Only in production mode, development uses proxy
 		if !options.Dev {
 			router.NoRoute(func(c *gin.Context) {
-				getEmbeddedStaticHandler().ServeHTTP(c.Writer, c.Request)
+				static.GetEmbeddedHandler().ServeHTTP(c.Writer, c.Request)
 			})
 		}
 		{{else if eq .Router "Echo"}}
@@ -249,7 +253,7 @@ func main() {
 		if !options.Dev {
 			router.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 				return func(c echo.Context) error {
-					getEmbeddedStaticHandler().ServeHTTP(c.Response().Writer, c.Request())
+					static.GetEmbeddedHandler().ServeHTTP(c.Response().Writer, c.Request())
 					return nil
 				}
 			})
@@ -258,13 +262,13 @@ func main() {
 		// Serve static files (frontend assets) - handled by GoFlux CLI
 		// Only in production mode, development uses proxy
 		if !options.Dev {
-			router.Handle("/", getEmbeddedStaticHandler())
+			router.Handle("/", static.GetEmbeddedHandler())
 		}
 		{{else if eq .Router "Gorilla Mux"}}
 		// Serve static files (frontend assets) - handled by GoFlux CLI
 		// Only in production mode, development uses proxy
 		if !options.Dev {
-			router.PathPrefix("/").Handler(getEmbeddedStaticHandler())
+			router.PathPrefix("/").Handler(static.GetEmbeddedHandler())
 		}
 		{{end}}
 
@@ -294,6 +298,42 @@ func main() {
 			}
 			{{end}}
 		})
+	})
+
+	// Add GoFlux OpenAPI generation command
+	// This allows running: ./server openapi -o build/openapi.json
+	goflux.AddOpenAPICommand(cli.Root(), func() huma.API {
+		// This is a simplified version for CLI-only usage
+		// The full API setup happens when the server runs
+		config := huma.DefaultConfig("{{.ProjectName}} API", "1.0.0")
+		config.Info.Description = "A modern REST API built with GoFlux and Huma"
+		
+		{{if eq .Router "Chi (Recommended)"}}
+		router := chi.NewMux()
+		humaAPI := humachi.New(router, config)
+		{{else if eq .Router "Fiber"}}
+		app := fiber.New()
+		humaAPI := humafiber.New(app, config)
+		{{else if eq .Router "Gin"}}
+		gin.SetMode(gin.ReleaseMode)
+		router := gin.New()
+		humaAPI := humagin.New(router, config)
+		{{else if eq .Router "Echo"}}
+		router := echo.New()
+		humaAPI := humaecho.New(router, config)
+		{{else if eq .Router "Go 1.22+ ServeMux"}}
+		router := http.NewServeMux()
+		humaAPI := humago.New(router, config)
+		{{else if eq .Router "Gorilla Mux"}}
+		router := mux.NewRouter()
+		humaAPI := humamux.New(router, config)
+		{{end}}
+		
+		// Register the same endpoints for OpenAPI generation
+		database := db.NewMockDB()
+		apiinternal.SetupRoutes(humaAPI, database)
+		
+		return humaAPI
 	})
 
 	// Run the CLI. When passed no commands, it starts the server.

@@ -2,11 +2,12 @@ package dev
 
 import (
 	"fmt"
-	"goflux/internal/config"
 	"net/http"
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/barisgit/goflux/internal/config"
 
 	"github.com/fsnotify/fsnotify"
 )

@@ -1,10 +1,11 @@
-module goflux
+module github.com/barisgit/goflux
 
 go 1.24.2
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
 	github.com/creack/pty v1.1.24
+	github.com/danielgtaylor/huma/v2 v2.32.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/spf13/cobra v1.9.1
 	gopkg.in/yaml.v3 v3.0.1

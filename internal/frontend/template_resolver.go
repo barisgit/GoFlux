@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"goflux/internal/config"
+	"github.com/barisgit/goflux/internal/config"
 )
 
 // TemplateResolver resolves the appropriate template generator based on configuration

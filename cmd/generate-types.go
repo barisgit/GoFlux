@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"goflux/internal/typegen/analyzer"
-	"goflux/internal/typegen/generator"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/barisgit/goflux/internal/typegen/analyzer"
+	"github.com/barisgit/goflux/internal/typegen/generator"
 
 	"github.com/spf13/cobra"
 )

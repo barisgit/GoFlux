@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"goflux/internal/config"
+	"github.com/barisgit/goflux/internal/config"
 )
 
 // Manager handles frontend generation and setup

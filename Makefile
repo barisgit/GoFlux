@@ -80,6 +80,21 @@ test-project:
 	@go run . new test-project
 	@echo "✅ Project created successfully"
 
+# Test the framework integration locally
+test-framework: dev-install
+	@echo "🧪 Testing GoFlux framework integration..."
+	@rm -rf test-framework-project || true
+	@flux new test-framework-project
+	@cd test-framework-project && \
+		echo "" >> go.mod && \
+		echo "replace github.com/barisgit/goflux => $(PWD)" >> go.mod && \
+		go mod tidy && \
+		echo "✅ Framework dependencies added" && \
+		go run ./cmd/server openapi -o test-openapi.json && \
+		echo "✅ OpenAPI generation works!" && \
+		ls -la test-openapi.json
+	@echo "🎉 Framework integration test complete!"
+
 # Development workflow
 dev-workflow: clean test-project
 	@echo "🎉 Full development workflow complete!"

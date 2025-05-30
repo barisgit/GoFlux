@@ -2,11 +2,12 @@ package dev
 
 import (
 	"fmt"
-	"goflux/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/barisgit/goflux/internal/config"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -18,18 +19,16 @@ func (o *DevOrchestrator) setupFileWatcher() error {
 	}
 	o.fileWatcher = watcher
 
-	// Watch directories that contain API-related files
+	// Watch directories that contain backend code for hot reload
 	watchDirs := []string{
-		"internal/api",
-		"internal/types",
-		"cmd/server",
+		"cmd",      // All command code (including cmd/server)
+		"internal", // All internal packages (api, types, db, auth, etc.)
 	}
 
+	// Add directories recursively since fsnotify doesn't watch subdirectories automatically
 	for _, dir := range watchDirs {
-		if _, err := os.Stat(dir); !os.IsNotExist(err) {
-			if err := o.fileWatcher.Add(dir); err != nil {
-				o.log(fmt.Sprintf("⚠️  Warning: Could not watch %s: %v", dir, err), "\x1b[33m")
-			}
+		if err := o.addDirectoryRecursively(dir); err != nil {
+			o.log(fmt.Sprintf("⚠️  Warning: Could not watch %s: %v", dir, err), "\x1b[33m")
 		}
 	}
 
@@ -37,6 +36,30 @@ func (o *DevOrchestrator) setupFileWatcher() error {
 	go o.handleFileEvents()
 
 	return nil
+}
+
+// addDirectoryRecursively adds a directory and all its subdirectories to the file watcher
+func (o *DevOrchestrator) addDirectoryRecursively(root string) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// If the directory doesn't exist, skip it silently
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+
+		// Only add directories to the watcher
+		if info.IsDir() {
+			if err := o.fileWatcher.Add(path); err != nil {
+				o.log(fmt.Sprintf("⚠️  Warning: Could not watch %s: %v", path, err), "\x1b[33m")
+			} else if o.debug {
+				o.log(fmt.Sprintf("👁️  Watching directory: %s", path), "\x1b[36m")
+			}
+		}
+
+		return nil
+	})
 }
 
 func (o *DevOrchestrator) setupConfigWatcher() error {
@@ -89,7 +112,7 @@ func (o *DevOrchestrator) handleFileEvents() {
 						o.log("⏳ Waiting for backend to be ready...", "\x1b[33m")
 						if o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
 							// Small delay to ensure server is fully initialized
-							time.Sleep(1 * time.Second)
+							time.Sleep(500 * time.Millisecond)
 
 							// Fetch fresh OpenAPI spec
 							if err := o.fetchAndSaveOpenAPISpec(); err != nil {
@@ -196,6 +219,23 @@ func (o *DevOrchestrator) checkConfigChanges(old, new *config.ProjectConfig) boo
 		old.Backend.Router != new.Backend.Router {
 		return true
 	}
+
+	// Check if SPA routing config changed (affects static files)
+	if old.Frontend.StaticGen.SPARouting != new.Frontend.StaticGen.SPARouting {
+		// Regenerate static files with new SPA routing setting
+		go func() {
+			o.log("🔧 SPA routing config changed, regenerating static files...", "\x1b[36m")
+			if err := o.generateStaticFiles(); err != nil {
+				o.log("⚠️  Warning: Could not regenerate static files", "\x1b[33m")
+				if o.debug {
+					o.log(fmt.Sprintf("Static files generation error: %v", err), "\x1b[31m")
+				}
+			} else {
+				o.log("✅ Static files regenerated for new SPA routing setting!", "\x1b[32m")
+			}
+		}()
+	}
+
 	return false
 }
 

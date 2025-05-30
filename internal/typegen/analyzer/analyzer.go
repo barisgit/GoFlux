@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"goflux/internal/typegen/types"
+	"github.com/barisgit/goflux/internal/typegen/types"
 )
 
 // OpenAPISpec represents the OpenAPI 3.x specification structure

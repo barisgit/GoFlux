@@ -2,10 +2,13 @@ package templates
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/barisgit/goflux/templates"
 )
 
 // TemplateData contains the data passed to templates
@@ -15,6 +18,7 @@ type TemplateData struct {
 	GoVersion   string
 	BackendPort string
 	Router      string
+	SPARouting  bool
 }
 
 // GenerateProject creates a new project from templates
@@ -25,18 +29,22 @@ func GenerateProject(projectPath, projectName, router string) error {
 		GoVersion:   "1.24.2",
 		BackendPort: "3000",
 		Router:      router,
+		SPARouting:  true, // Default to SPA routing enabled
 	}
 
-	// Get the path to templates directory relative to the CLI
-	templatesDir := filepath.Join("templates")
+	// Use embedded templates
+	return generateFromEmbedded(projectPath, data)
+}
 
-	// Walk through all template files in the templates directory
-	return filepath.Walk(templatesDir, func(path string, info os.FileInfo, err error) error {
+// generateFromEmbedded generates project from embedded templates
+func generateFromEmbedded(projectPath string, data TemplateData) error {
+	// Walk through all template files in the embedded filesystem
+	return fs.WalkDir(templates.TemplatesFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 
@@ -45,8 +53,8 @@ func GenerateProject(projectPath, projectName, router string) error {
 			return nil
 		}
 
-		// Read template file
-		content, err := os.ReadFile(path)
+		// Read template file from embedded filesystem
+		content, err := templates.TemplatesFS.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read template %s: %w", path, err)
 		}
@@ -57,12 +65,8 @@ func GenerateProject(projectPath, projectName, router string) error {
 			return fmt.Errorf("failed to parse template %s: %w", path, err)
 		}
 
-		// Determine output path (remove templates/ prefix and .tmpl extension)
-		relPath, err := filepath.Rel(templatesDir, path)
-		if err != nil {
-			return err
-		}
-		outputPath := strings.TrimSuffix(relPath, ".tmpl")
+		// Determine output path (remove .tmpl extension)
+		outputPath := strings.TrimSuffix(path, ".tmpl")
 		fullOutputPath := filepath.Join(projectPath, outputPath)
 
 		// Create directory if it doesn't exist
@@ -89,20 +93,19 @@ func GenerateProject(projectPath, projectName, router string) error {
 
 // ListTemplates returns all available template files
 func ListTemplates() ([]string, error) {
-	var templates []string
-	templatesDir := filepath.Join("templates")
+	var templateFiles []string
 
-	err := filepath.Walk(templatesDir, func(path string, info os.FileInfo, err error) error {
+	err := fs.WalkDir(templates.TemplatesFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".tmpl") {
-			templates = append(templates, path)
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".tmpl") {
+			templateFiles = append(templateFiles, path)
 		}
 
 		return nil
 	})
 
-	return templates, err
+	return templateFiles, err
 }
