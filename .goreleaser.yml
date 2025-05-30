@@ -94,7 +94,7 @@ brews:
     test: |
       system "#{bin}/flux", "--version"
 
-# Chocolatey package for Windows
+# Chocolatey package for Windows (commented out for cross-platform development)
 # chocolateys:
 #   - name: goflux
 #     title: GoFlux CLI
@@ -120,38 +120,38 @@ scoops:
     description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
     license: MIT
 
-# Docker images
-dockers:
-  - image_templates:
-      - "barisgit/goflux:{{ .Version }}-amd64"
-      - "barisgit/goflux:latest-amd64"
-    dockerfile: Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
+# Docker images (commented out until Docker Hub credentials are configured)
+# dockers:
+#   - image_templates:
+#       - "barisgit/goflux:{{ .Version }}-amd64"
+#       - "barisgit/goflux:latest-amd64"
+#     dockerfile: Dockerfile
+#     use: buildx
+#     build_flag_templates:
+#       - "--platform=linux/amd64"
+#       - "--label=org.opencontainers.image.created={{.Date}}"
+#       - "--label=org.opencontainers.image.title={{.ProjectName}}"
+#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#       - "--label=org.opencontainers.image.version={{.Version}}"
 
-  - image_templates:
-      - "barisgit/goflux:{{ .Version }}-arm64"
-      - "barisgit/goflux:latest-arm64"
-    dockerfile: Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
+#   - image_templates:
+#       - "barisgit/goflux:{{ .Version }}-arm64"
+#       - "barisgit/goflux:latest-arm64"
+#     dockerfile: Dockerfile
+#     use: buildx
+#     build_flag_templates:
+#       - "--platform=linux/arm64"
+#       - "--label=org.opencontainers.image.created={{.Date}}"
+#       - "--label=org.opencontainers.image.title={{.ProjectName}}"
+#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#       - "--label=org.opencontainers.image.version={{.Version}}"
 
-docker_manifests:
-  - name_template: "barisgit/goflux:{{ .Version }}"
-    image_templates:
-      - "barisgit/goflux:{{ .Version }}-amd64"
-      - "barisgit/goflux:{{ .Version }}-arm64"
-  - name_template: "barisgit/goflux:latest"
-    image_templates:
-      - "barisgit/goflux:latest-amd64"
-      - "barisgit/goflux:latest-arm64" 
+# docker_manifests:
+#   - name_template: "barisgit/goflux:{{ .Version }}"
+#     image_templates:
+#       - "barisgit/goflux:{{ .Version }}-amd64"
+#       - "barisgit/goflux:{{ .Version }}-arm64"
+#   - name_template: "barisgit/goflux:latest"
+#     image_templates:
+#       - "barisgit/goflux:latest-amd64"
+#       - "barisgit/goflux:latest-arm64" 
