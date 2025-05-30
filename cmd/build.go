@@ -395,14 +395,14 @@ func (b *BuildOrchestrator) buildGoBinary(forLinux bool) error {
 	// Add output path
 	args = append(args, "-o", binaryPath)
 
-	// Add package path (look for cmd/server/ first, then current directory)
-	packagePath := "./cmd/server"
-	if _, err := os.Stat("cmd/server/main.go"); os.IsNotExist(err) {
-		// Check if main.go exists in project root
-		if _, err := os.Stat("main.go"); os.IsNotExist(err) {
-			return fmt.Errorf("no main.go found in cmd/server/ or project root")
+	// Add package path (look for main.go in root first, then cmd/server/ for backward compatibility)
+	packagePath := "."
+	if _, err := os.Stat("main.go"); os.IsNotExist(err) {
+		// Fall back to cmd/server for backward compatibility
+		if _, err := os.Stat("cmd/server/main.go"); os.IsNotExist(err) {
+			return fmt.Errorf("no main.go found in project root or cmd/server/")
 		}
-		packagePath = "."
+		packagePath = "./cmd/server"
 	}
 	args = append(args, packagePath)
 
@@ -570,9 +570,14 @@ func (b *BuildOrchestrator) ensureOpenAPISpec() error {
 }
 
 func (b *BuildOrchestrator) generateOpenAPIDirectly() error {
-	// Check if we have a cmd/server directory
-	if _, err := os.Stat("cmd/server/main.go"); os.IsNotExist(err) {
-		return fmt.Errorf("no cmd/server/main.go found, cannot generate OpenAPI spec")
+	// Check if we have main.go in root or cmd/server directory
+	var mainPath string
+	if _, err := os.Stat("main.go"); err == nil {
+		mainPath = "."
+	} else if _, err := os.Stat("cmd/server/main.go"); err == nil {
+		mainPath = "./cmd/server"
+	} else {
+		return fmt.Errorf("no main.go found in project root or cmd/server/, cannot generate OpenAPI spec")
 	}
 
 	// Create build directory if it doesn't exist
@@ -584,7 +589,7 @@ func (b *BuildOrchestrator) generateOpenAPIDirectly() error {
 
 	// Generate OpenAPI spec using the built-in command
 	outputPath := "build/openapi.json"
-	cmd := exec.Command("go", "run", "./cmd/server", "openapi", "-o", outputPath)
+	cmd := exec.Command("go", "run", mainPath, "openapi", "-o", outputPath)
 
 	// Capture output for debugging
 	var stdout, stderr strings.Builder

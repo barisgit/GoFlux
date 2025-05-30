@@ -51,7 +51,7 @@ go mod tidy
 
 ```bash
 # Generate OpenAPI spec without starting server
-go run ./cmd/server openapi -o build/openapi.json
+go run . openapi -o build/openapi.json
 
 # Check the output
 cat build/openapi.json | jq .info.title

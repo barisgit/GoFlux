@@ -49,8 +49,17 @@ func (o *DevOrchestrator) startBackendProcess() error {
 
 	o.log("🚀 Starting backend server...", "\x1b[34m")
 
-	// Create new process
-	cmd := exec.Command("go", "run", "./cmd/server")
+	// Determine the main.go path (root first, then cmd/server for backward compatibility)
+	var mainPath string
+	if _, err := os.Stat("main.go"); err == nil {
+		mainPath = "."
+	} else if _, err := os.Stat("cmd/server/main.go"); err == nil {
+		mainPath = "./cmd/server"
+	} else {
+		return fmt.Errorf("no main.go found in project root or cmd/server/")
+	}
+
+	cmd := exec.Command("go", "run", mainPath)
 	cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", o.backendPort))
 
 	// Use PTY for colored output
@@ -91,9 +100,19 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 		return fmt.Errorf("failed to create build directory: %w", err)
 	}
 
+	// Determine the main.go path (root first, then cmd/server for backward compatibility)
+	var mainPath string
+	if _, err := os.Stat("main.go"); err == nil {
+		mainPath = "."
+	} else if _, err := os.Stat("cmd/server/main.go"); err == nil {
+		mainPath = "./cmd/server"
+	} else {
+		return fmt.Errorf("no main.go found in project root or cmd/server/")
+	}
+
 	// Generate OpenAPI spec using the built-in command
 	outputPath := filepath.Join(buildDir, "openapi.json")
-	cmd := exec.Command("go", "run", "./cmd/server", "openapi", "-o", outputPath)
+	cmd := exec.Command("go", "run", mainPath, "openapi", "-o", outputPath)
 
 	// Capture output for debugging
 	var stdout, stderr strings.Builder

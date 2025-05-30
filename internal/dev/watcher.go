@@ -20,13 +20,16 @@ func (o *DevOrchestrator) setupFileWatcher() error {
 	o.fileWatcher = watcher
 
 	// Watch directories that contain backend code for hot reload
-	watchDirs := []string{
-		"cmd",      // All command code (including cmd/server)
-		"internal", // All internal packages (api, types, db, auth, etc.)
+	watchPaths := []string{
+		"internal", // API code, DB models, etc.
+		"pkg",      // Shared packages
+		"cmd",      // Command code (including cmd/server for backward compatibility)
+		"main.go",  // Root main.go file
+		"*.go",     // Any other Go files in project root
 	}
 
 	// Add directories recursively since fsnotify doesn't watch subdirectories automatically
-	for _, dir := range watchDirs {
+	for _, dir := range watchPaths {
 		if err := o.addDirectoryRecursively(dir); err != nil {
 			o.log(fmt.Sprintf("⚠️  Warning: Could not watch %s: %v", dir, err), "\x1b[33m")
 		}
