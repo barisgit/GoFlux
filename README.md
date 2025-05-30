@@ -2,7 +2,7 @@
 
 🚀 **The fastest way to build full-stack applications with Go + TypeScript**
 
-GoFlux is a standalone CLI that creates and manages full-stack projects with Go backend and modern TypeScript frontend frameworks.
+GoFlux is a CLI and a micro-framework that creates and manages full-stack projects with Go backend and modern TypeScript frontend frameworks.
 
 ## ✨ Features
 
@@ -11,21 +11,21 @@ GoFlux is a standalone CLI that creates and manages full-stack projects with Go 
 - ⚡ **Fast Development**: Hot reload for both backend and frontend
 - 🎨 **Modern Frontend**: Choose from TanStack Router, Next.js, or Vite+React
 - 📦 **Single Binary**: No runtime dependencies in production
-- 🛠️ **CLI Managed**: Everything managed by the flux CLI
+- 🛠️ **CLI Managed**: Everything managed by the flux CLI with optional micro-framework
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Install GoFlux CLI (coming soon)
-go install github.com/yourorg/goflux@latest
+# Install GoFlux CLI
+go install github.com/barisgit/goflux@latest # (coming soon)
 
 # Or build from source
-git clone https://github.com/yourorg/goflux
+git clone https://github.com/barisgit/goflux
 cd goflux
 go build -o flux .
-mv flux /usr/local/bin/  # Add to PATH
+mv flux /usr/local/bin/
 ```
 
 ### Create a New Project
@@ -42,9 +42,13 @@ flux dev
 ```
 
 That's it! Your app is running at:
-- **Frontend**: http://localhost:3000
-- **Backend**: http://localhost:3001
-- **API**: http://localhost:3001/api/health
+
+- **Proxy**: http://localhost:3000
+- **Frontend**: http://localhost:3001 (or next available port that is not in use)
+- **Backend**: http://localhost:3002 (or next available port that is not in use)
+- **API**: http://localhost:3002/api/health
+
+*Note: The proxy is used to serve the frontend and backend in the same way they will be served in production. In development, a node process is used to server the frontend, while in production, the frontend is served by the backend.*
 
 ## 🏗️ Project Structure
 
@@ -54,7 +58,6 @@ my-app/
 ├── go.mod              # Go dependencies
 ├── cmd/
 │   ├── server/         # Go backend server
-│   └── generate-types/ # Type generation
 ├── internal/
 │   ├── api/           # API routes
 │   └── types/         # Go types
@@ -102,10 +105,9 @@ flux --help               # Show all commands
 - Built-in optimizations
 - Large ecosystem
 
-**Vite + React**
-- Fastest dev server
-- Minimal setup
-- Maximum flexibility
+...and more.
+
+*The CLI will provide list of all available frontend options.*
 
 ## 🛠️ How It Works
 
