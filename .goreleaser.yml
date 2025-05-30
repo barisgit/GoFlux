@@ -81,18 +81,18 @@ release:
     **Manual Download**
     Download the appropriate binary for your platform from the assets below.
 
-# Homebrew tap
-brews:
-  - repository:
-      owner: barisgit
-      name: homebrew-goflux
-    homepage: https://github.com/barisgit/goflux
-    description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
-    license: MIT
-    install: |
-      bin.install "flux"
-    test: |
-      system "#{bin}/flux", "--version"
+# Homebrew tap (commented out until repository is created)
+# brews:
+#   - repository:
+#       owner: barisgit
+#       name: homebrew-goflux
+#     homepage: https://github.com/barisgit/goflux
+#     description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
+#     license: MIT
+#     install: |
+#       bin.install "flux"
+#     test: |
+#       system "#{bin}/flux", "--version"
 
 # Chocolatey package for Windows (commented out for cross-platform development)
 # chocolateys:
@@ -111,14 +111,14 @@ brews:
 #       GoFlux is a CLI and a micro-framework that creates and manages full-stack projects with Go backend and modern TypeScript frontend frameworks.
 #     release_notes: "https://github.com/barisgit/goflux/releases/tag/v{{ .Version }}"
 
-# Scoop package for Windows
-scoops:
-  - repository:
-      owner: barisgit
-      name: scoop-goflux
-    homepage: https://github.com/barisgit/goflux
-    description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
-    license: MIT
+# Scoop package for Windows (commented out until repository is created)
+# scoops:
+#   - repository:
+#       owner: barisgit
+#       name: scoop-goflux
+#     homepage: https://github.com/barisgit/goflux
+#     description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
+#     license: MIT
 
 # Docker images (commented out until Docker Hub credentials are configured)
 # dockers:
