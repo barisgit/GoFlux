@@ -236,11 +236,11 @@ func (b *BuildOrchestrator) generateTypes() error {
 		}
 	}()
 
-	// Generate API client
+	// Generate API client using project config
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := generator.GenerateAPIClient(analysis.Routes, analysis.TypeDefs); err != nil {
+		if err := generator.GenerateAPIClient(analysis.Routes, analysis.TypeDefs, &b.config.APIClient); err != nil {
 			errorChan <- fmt.Errorf("generating API client: %w", err)
 		}
 	}()
@@ -276,6 +276,9 @@ func (b *BuildOrchestrator) generateTypes() error {
 	b.log("✅ Types generated", "\x1b[32m")
 	b.log(fmt.Sprintf("Generated %d TypeScript types", len(analysis.TypeDefs)), "\x1b[36m")
 	b.log(fmt.Sprintf("Generated API client with %d routes", len(analysis.Routes)), "\x1b[36m")
+	if b.config.APIClient.Generator != "basic" {
+		b.log(fmt.Sprintf("Using %s generator", b.config.APIClient.Generator), "\x1b[36m")
+	}
 	fmt.Println()
 	return nil
 }

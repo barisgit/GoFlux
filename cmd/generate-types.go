@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/barisgit/goflux/internal/config"
 	"github.com/barisgit/goflux/internal/typegen/analyzer"
 	"github.com/barisgit/goflux/internal/typegen/generator"
 
@@ -54,6 +55,22 @@ func generateTypes(debug, quiet bool) error {
 		log("🔧 Generating API types...", "\x1b[36m")
 	}
 
+	// Read project configuration
+	projectConfig, err := config.ReadConfig("flux.yaml")
+	if err != nil {
+		if !quiet {
+			log("⚠️  Warning: Could not read flux.yaml, using defaults", "\x1b[33m")
+			if debug {
+				log(fmt.Sprintf("Config read error: %v", err), "\x1b[33m")
+			}
+		}
+		// Use defaults if config file doesn't exist
+		defaultAPIConfig := config.GetDefaultAPIClientConfig()
+		projectConfig = &config.ProjectConfig{
+			APIClient: defaultAPIConfig,
+		}
+	}
+
 	// Use the new modular type generation system
 	analysis, err := analyzer.AnalyzeProject(".", debug)
 	if err != nil {
@@ -80,7 +97,7 @@ func generateTypes(debug, quiet bool) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := generator.GenerateAPIClient(analysis.Routes, analysis.TypeDefs); err != nil {
+		if err := generator.GenerateAPIClient(analysis.Routes, analysis.TypeDefs, &projectConfig.APIClient); err != nil {
 			errorChan <- fmt.Errorf("generating API client: %w", err)
 		}
 	}()
@@ -112,6 +129,9 @@ func generateTypes(debug, quiet bool) error {
 		log("✅ API types generated successfully", "\x1b[32m")
 		log(fmt.Sprintf("Generated %d TypeScript types", len(analysis.TypeDefs)), "\x1b[36m")
 		log(fmt.Sprintf("Generated API client with %d routes", len(analysis.Routes)), "\x1b[36m")
+		if projectConfig.APIClient.Generator != "basic" {
+			log(fmt.Sprintf("Using %s generator", projectConfig.APIClient.Generator), "\x1b[36m")
+		}
 	}
 
 	return nil

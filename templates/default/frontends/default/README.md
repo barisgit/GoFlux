@@ -165,7 +165,7 @@ const rootRoute = createRootRoute({
   component: () => (
     <>
       <Outlet />
-      <ReactQueryDevtools buttonPosition="top-right" />
+      <ReactQueryDevtools buttonPosition="bottom-right" />
       <TanStackRouterDevtools />
     </>
   ),

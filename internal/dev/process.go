@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/barisgit/goflux/internal/config"
 	"github.com/barisgit/goflux/internal/typegen/analyzer"
 	"github.com/barisgit/goflux/internal/typegen/generator"
 
@@ -147,6 +148,22 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 func (o *DevOrchestrator) generateTypes() error {
 	o.log("🔧 Generating API types...", "\x1b[36m")
 
+	// Read project configuration
+	projectConfig, err := config.ReadConfig("flux.yaml")
+	if err != nil {
+		o.log("⚠️  Warning: Could not read flux.yaml, using defaults", "\x1b[33m")
+		if o.debug {
+			o.log(fmt.Sprintf("Config read error: %v", err), "\x1b[33m")
+		}
+		// Use defaults if config file doesn't exist
+		defaultAPIConfig := config.GetDefaultAPIClientConfig()
+		projectConfig = &config.ProjectConfig{
+			APIClient: defaultAPIConfig,
+		}
+	}
+
+	o.log(fmt.Sprintf("Using API client generator: %s", projectConfig.APIClient.Generator), "\x1b[36m")
+
 	// Use the new modular type generation system
 	analysis, err := analyzer.AnalyzeProject(".", o.debug)
 	if err != nil {
@@ -171,7 +188,7 @@ func (o *DevOrchestrator) generateTypes() error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := generator.GenerateAPIClient(analysis.Routes, analysis.TypeDefs); err != nil {
+		if err := generator.GenerateAPIClient(analysis.Routes, analysis.TypeDefs, &projectConfig.APIClient); err != nil {
 			errorChan <- fmt.Errorf("generating API client: %w", err)
 		}
 	}()
@@ -202,6 +219,9 @@ func (o *DevOrchestrator) generateTypes() error {
 	// Log summary
 	o.log(fmt.Sprintf("Generated %d TypeScript types", len(analysis.TypeDefs)), "\x1b[36m")
 	o.log(fmt.Sprintf("Generated API client with %d routes", len(analysis.Routes)), "\x1b[36m")
+	if projectConfig.APIClient.Generator != "basic" {
+		o.log(fmt.Sprintf("Using %s generator", projectConfig.APIClient.Generator), "\x1b[36m")
+	}
 
 	return nil
 }
