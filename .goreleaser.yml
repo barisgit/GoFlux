@@ -95,6 +95,7 @@ brews:
   - repository:
       owner: barisgit
       name: homebrew-goflux
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: https://github.com/barisgit/goflux
     description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
     license: MIT
