@@ -62,15 +62,24 @@ release:
     name: goflux
   draft: false
   prerelease: auto
-  name_template: "GoFlux v{{.Version}}"
+  name_template: "Flux v{{.Version}}"
   header: |
-    ## 🚀 GoFlux v{{.Version}}
+    ## 🚀 Flux v{{.Version}}
     
     ### Installation
     
-    **macOS/Linux (Homebrew)**
+    **One-line Install (Recommended)**
     ```bash
-    brew install barisgit/goflux/goflux
+    # macOS/Linux
+    curl -fsSL https://raw.githubusercontent.com/barisgit/goflux/main/scripts/install.sh | bash
+    
+    # Windows (PowerShell)
+    iwr -useb https://raw.githubusercontent.com/barisgit/goflux/main/scripts/install.ps1 | iex
+    ```
+    
+    **Homebrew (macOS/Linux)**
+    ```bash
+    brew install barisgit/goflux/flux
     ```
     
     **Go Install**
@@ -82,17 +91,17 @@ release:
     Download the appropriate binary for your platform from the assets below.
 
 # Homebrew tap (commented out until repository is created)
-# brews:
-#   - repository:
-#       owner: barisgit
-#       name: homebrew-goflux
-#     homepage: https://github.com/barisgit/goflux
-#     description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
-#     license: MIT
-#     install: |
-#       bin.install "flux"
-#     test: |
-#       system "#{bin}/flux", "--version"
+brews:
+  - repository:
+      owner: barisgit
+      name: homebrew-goflux
+    homepage: https://github.com/barisgit/goflux
+    description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
+    license: MIT
+    install: |
+      bin.install "flux"
+    test: |
+      system "#{bin}/flux", "--version"
 
 # Chocolatey package for Windows (commented out for cross-platform development)
 # chocolateys:

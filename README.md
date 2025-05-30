@@ -36,20 +36,20 @@ iwr -useb https://raw.githubusercontent.com/barisgit/goflux/main/scripts/install
 **Homebrew (macOS/Linux):**
 
 ```bash
-brew install barisgit/goflux/goflux
+brew install barisgit/goflux/flux
 ```
 
 **Chocolatey (Windows):**
 
 ```cmd
-choco install goflux
+choco install flux
 ```
 
 **Scoop (Windows):**
 
 ```cmd
 scoop bucket add goflux https://github.com/barisgit/scoop-goflux
-scoop install goflux
+scoop install flux
 ```
 
 #### Option 3: Go Install
@@ -61,7 +61,7 @@ go install github.com/barisgit/goflux@latest
 #### Option 4: Docker
 
 ```bash
-docker run --rm -v $(pwd):/workspace barisgit/goflux:latest new my-app
+docker run --rm -v $(pwd):/workspace barisgit/goflux:latest flux new my-app
 ```
 
 #### Option 5: Manual Download
