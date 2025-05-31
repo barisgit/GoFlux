@@ -3,12 +3,13 @@ project_name: goflux
 before:
   hooks:
     - go mod tidy
-    - cd cli && go mod tidy
+    - sh -c "cd cli && go mod tidy"
     - go test ./...
-    - cd cli && go test ./...
+    - sh -c "cd cli && go test ./..."
 
 builds:
-  - main: ./cli
+  - main: .
+    dir: ./cli
     id: "flux"
     binary: flux
     env:
