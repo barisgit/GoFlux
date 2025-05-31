@@ -16,6 +16,14 @@ var (
 )
 
 func main() {
+	// Handle working directory for development mode
+	if workDir := os.Getenv("flux_WORK_DIR"); workDir != "" {
+		if err := os.Chdir(workDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed to change to work directory %s: %v\n", workDir, err)
+			os.Exit(1)
+		}
+	}
+
 	rootCmd := &cobra.Command{
 		Use:     "flux",
 		Short:   "GoFlux - Full-stack Go development framework",

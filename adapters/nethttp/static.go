@@ -4,7 +4,7 @@ import (
 	"embed"
 	"net/http"
 
-	"github.com/barisgit/goflux/pkg/base"
+	"github.com/barisgit/goflux/base"
 )
 
 // StaticHandler creates a net/http handler using the shared static logic

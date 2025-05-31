@@ -3,7 +3,7 @@ package gin
 import (
 	"embed"
 
-	"github.com/barisgit/goflux/pkg/base"
+	"github.com/barisgit/goflux/base"
 	"github.com/gin-gonic/gin"
 )
 

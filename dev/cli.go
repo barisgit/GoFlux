@@ -3,7 +3,7 @@ package dev
 import (
 	"fmt"
 
-	"github.com/barisgit/goflux/pkg/openapi"
+	"github.com/barisgit/goflux/openapi"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/spf13/cobra"

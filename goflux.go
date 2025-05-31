@@ -1,9 +1,11 @@
+// Package goflux provides the GoFlux framework for building full-stack Go applications.
+// This allows users to import: github.com/barisgit/goflux
 package goflux
 
 import (
-	"github.com/barisgit/goflux/pkg/base"
-	"github.com/barisgit/goflux/pkg/dev"
-	"github.com/barisgit/goflux/pkg/openapi"
+	"github.com/barisgit/goflux/base"
+	"github.com/barisgit/goflux/dev"
+	"github.com/barisgit/goflux/openapi"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/spf13/cobra"

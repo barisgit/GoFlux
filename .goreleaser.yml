@@ -6,15 +6,15 @@ before:
     - go test ./...
 
 builds:
-  - id: flux
-    main: ./main.go
+  - main: ./cli/main.go
+    id: "flux"
     binary: flux
     env:
       - CGO_ENABLED=0
     goos:
       - linux
-      - darwin
       - windows
+      - darwin
     goarch:
       - amd64
       - arm64

@@ -33,12 +33,12 @@ dev-install:
 	@echo '# GoFlux Development Mode' >> ~/bin/flux
 	@echo 'GOFLUX_SOURCE="$(PWD)"' >> ~/bin/flux
 	@echo 'flux_WORK_DIR="$$(pwd)"' >> ~/bin/flux
-	@echo 'cd "$$GOFLUX_SOURCE" && flux_WORK_DIR="$$flux_WORK_DIR" go run . "$$@"' >> ~/bin/flux
+	@echo 'cd "$$GOFLUX_SOURCE/cli" && flux_WORK_DIR="$$flux_WORK_DIR" go run . "$$@"' >> ~/bin/flux
 	@chmod +x ~/bin/flux
 	@echo ""
 	@echo "✅ GoFlux installed in development mode!"
 	@echo "📍 Location: ~/bin/flux"
-	@echo "📁 Source: $(PWD)"
+	@echo "📁 Source: $(PWD)/cli"
 	@echo ""
 	@echo "Add ~/bin to your PATH if not already there:"
 	@echo "  echo 'export PATH=\"\$$HOME/bin:\$$PATH\"' >> ~/.bashrc"
@@ -56,12 +56,12 @@ dev-uninstall:
 # Build the binary
 build:
 	@echo "🔨 Building GoFlux CLI..."
-	@go build -o flux .
+	@cd cli && go build -o ../flux .
 	@echo "✅ Built: ./flux"
 
 # Development mode - run with go run (local only)
 dev:
-	@go run . $(ARGS)
+	@cd cli && go run . $(ARGS)
 
 # Clean build artifacts
 clean:
@@ -85,7 +85,7 @@ test:
 test-project: 
 	@echo "🧪 Testing project creation..."
 	@rm -rf test-project || true
-	@go run . new test-project
+	@cd cli && go run . new test-project
 	@echo "✅ Project created successfully"
 
 # Test the framework integration locally

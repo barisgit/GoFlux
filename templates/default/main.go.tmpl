@@ -18,41 +18,41 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	chilogger "github.com/go-chi/chi/v5/middleware"
 	// GoFlux Chi adapter
-	gofluxchi "github.com/barisgit/goflux/pkg/adapters/chi"
+	gofluxchi "github.com/barisgit/goflux/adapters/chi"
 	{{else if eq .Router "fiber"}}
 	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 	"github.com/gofiber/fiber/v2"
 	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
 	// GoFlux Fiber adapter
-	gofluxfiber "github.com/barisgit/goflux/pkg/adapters/fiber"
+	gofluxfiber "github.com/barisgit/goflux/adapters/fiber"
 	{{else if eq .Router "gin"}}
 	"github.com/danielgtaylor/huma/v2/adapters/humagin"
 	"github.com/gin-gonic/gin"
 	// GoFlux Gin adapter
-	gofluxgin "github.com/barisgit/goflux/pkg/adapters/gin"
+	gofluxgin "github.com/barisgit/goflux/adapters/gin"
 	{{else if eq .Router "echo"}}
 	"github.com/danielgtaylor/huma/v2/adapters/humaecho"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	// GoFlux Echo adapter
-	gofluxecho "github.com/barisgit/goflux/pkg/adapters/echo"
+	gofluxecho "github.com/barisgit/goflux/adapters/echo"
 	{{else if eq .Router "mux"}}
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	// GoFlux net/http adapter
-	gofluxnethttp "github.com/barisgit/goflux/pkg/adapters/nethttp"
+	gofluxnethttp "github.com/barisgit/goflux/adapters/nethttp"
 	{{else if eq .Router "gorilla"}}
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
 	"github.com/gorilla/mux"
 	// GoFlux net/http adapter (compatible with Gorilla)
-	gofluxnethttp "github.com/barisgit/goflux/pkg/adapters/nethttp"
+	gofluxnethttp "github.com/barisgit/goflux/adapters/nethttp"
 	{{else if eq .Router "fasthttp"}}
 	"net/http"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	// GoFlux net/http adapter (compatible with FastHTTP via adapter)
-	gofluxnethttp "github.com/barisgit/goflux/pkg/adapters/nethttp"
+	gofluxnethttp "github.com/barisgit/goflux/adapters/nethttp"
 	{{end}}
 	"github.com/danielgtaylor/huma/v2/humacli"
 
@@ -60,8 +60,8 @@ import (
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 	
 	// Import GoFlux framework
-	goflux "github.com/barisgit/goflux/pkg"
-	"github.com/barisgit/goflux/pkg/base"
+	goflux "github.com/barisgit/goflux"
+	"github.com/barisgit/goflux/base"
 )
 
 // Options for the CLI - allows configuration via flags or environment variables
