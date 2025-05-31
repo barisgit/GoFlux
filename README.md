@@ -23,7 +23,7 @@ Development utilities and CLI command helpers.
 
 - `AddOpenAPICommand(rootCmd *cobra.Command, apiProvider func() huma.API)` - Add OpenAPI generation command to CLI
 
-### `goflux/base` (Base Package)
+### `goflux/goflux` (Base Package)
 Core utilities for GoFlux applications.
 
 **Static File Serving:**

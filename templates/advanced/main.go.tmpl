@@ -65,7 +65,7 @@ import (
 
 	// Import GoFlux framework
 	goflux "github.com/barisgit/goflux"
-	"github.com/barisgit/goflux/base"
+	"github.com/barisgit/goflux/goflux"
 )
 
 // Options for the CLI - allows configuration via flags or environment variables
@@ -267,19 +267,19 @@ func main() {
 		// Only in production mode, development uses proxy
 		if !options.Dev {
 			{{if eq .Router "chi"}}
-			router.Handle("/*", gofluxchi.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			router.Handle("/*", gofluxchi.StaticHandler(static.EmbeddedAssets, goflux.StaticConfig{SPAMode: true}))
 			{{else if eq .Router "fiber"}}
-			app.Use("/*", gofluxfiber.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			app.Use("/*", gofluxfiber.StaticHandler(static.EmbeddedAssets, goflux.StaticConfig{SPAMode: true}))
 			{{else if eq .Router "gin"}}
-			router.NoRoute(gofluxgin.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			router.NoRoute(gofluxgin.StaticHandler(static.EmbeddedAssets, goflux.StaticConfig{SPAMode: true}))
 			{{else if eq .Router "echo"}}
-			router.Any("/*", gofluxecho.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			router.Any("/*", gofluxecho.StaticHandler(static.EmbeddedAssets, goflux.StaticConfig{SPAMode: true}))
 			{{else if eq .Router "mux"}}
-			router.Handle("/", gofluxnethttp.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			router.Handle("/", gofluxnethttp.StaticHandler(static.EmbeddedAssets, goflux.StaticConfig{SPAMode: true}))
 			{{else if eq .Router "gorilla"}}
-			router.PathPrefix("/").Handler(gofluxnethttp.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			router.PathPrefix("/").Handler(gofluxnethttp.StaticHandler(static.EmbeddedAssets, goflux.StaticConfig{SPAMode: true}))
 			{{else if eq .Router "fasthttp"}}
-			router.Handle("/", gofluxnethttp.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			router.Handle("/", gofluxnethttp.StaticHandler(static.EmbeddedAssets, goflux.StaticConfig{SPAMode: true}))
 			{{end}}
 		}
 
@@ -322,7 +322,7 @@ func main() {
 		// Handle cleanup when the application shuts down
 		hooks.OnStop(func() {
 			fmt.Println("🛑 Shutting down server...")
-			database.Close()
+			datagoflux.Close()
 		})
 	})
 

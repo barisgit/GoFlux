@@ -4,13 +4,13 @@ import (
 	"embed"
 	"net/http"
 
-	"github.com/barisgit/goflux/base"
+	"github.com/barisgit/goflux/goflux"
 )
 
 // StaticHandler creates a Chi handler using the shared static logic
-func StaticHandler(assets embed.FS, config base.StaticConfig) http.HandlerFunc {
+func StaticHandler(assets embed.FS, config goflux.StaticConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		response := base.ServeStaticFile(assets, config, r.URL.Path)
+		response := goflux.ServeStaticFile(assets, config, r.URL.Path)
 
 		if response.NotFound {
 			http.NotFound(w, r)
