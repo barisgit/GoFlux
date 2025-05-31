@@ -7,15 +7,55 @@ import (
 	"{{.ModuleName}}/internal/static"
 	"fmt"
 	"log"
+	{{if eq .Router "chi" "mux" "gorilla" "gin" "echo"}}
 	"net/http"
+	{{end}}
 	"os"
 	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	{{if eq .Router "chi"}}
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	// GoFlux Chi adapter
+	gofluxchi "github.com/barisgit/goflux/pkg/adapters/chi"
+	{{else if eq .Router "fiber"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
+	"github.com/gofiber/fiber/v2"
+	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
+	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
+	// GoFlux Fiber adapter
+	gofluxfiber "github.com/barisgit/goflux/pkg/adapters/fiber"
+	{{else if eq .Router "gin"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humagin"
+	"github.com/gin-gonic/gin"
+	// GoFlux Gin adapter
+	gofluxgin "github.com/barisgit/goflux/pkg/adapters/gin"
+	{{else if eq .Router "echo"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humaecho"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	// GoFlux Echo adapter
+	gofluxecho "github.com/barisgit/goflux/pkg/adapters/echo"
+	{{else if eq .Router "mux"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	// GoFlux net/http adapter
+	gofluxnethttp "github.com/barisgit/goflux/pkg/adapters/nethttp"
+	{{else if eq .Router "gorilla"}}
+	"github.com/danielgtaylor/huma/v2/adapters/humamux"
+	"github.com/gorilla/mux"
+	// GoFlux net/http adapter (compatible with Gorilla)
+	gofluxnethttp "github.com/barisgit/goflux/pkg/adapters/nethttp"
+	{{else if eq .Router "fasthttp"}}
+	"net/http"
+	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	// GoFlux net/http adapter (compatible with FastHTTP via adapter)
+	gofluxnethttp "github.com/barisgit/goflux/pkg/adapters/nethttp"
+	{{end}}
 
 	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/joho/godotenv"
@@ -25,6 +65,7 @@ import (
 
 	// Import GoFlux framework
 	goflux "github.com/barisgit/goflux/pkg"
+	"github.com/barisgit/goflux/pkg/base"
 )
 
 // Options for the CLI - allows configuration via flags or environment variables
@@ -52,7 +93,7 @@ func main() {
 			}
 		}
 		// Create router based on configuration
-
+		{{if eq .Router "chi"}}
 		// Create a new Chi router
 		router := chi.NewRouter()
 
@@ -77,6 +118,108 @@ func main() {
 				next.ServeHTTP(w, r)
 			})
 		})
+		{{else if eq .Router "fiber"}}
+		// Create a new Fiber app
+		app := fiber.New(fiber.Config{
+			ErrorHandler: func(c *fiber.Ctx, err error) error {
+				code := fiber.StatusInternalServerError
+				if e, ok := err.(*fiber.Error); ok {
+					code = e.Code
+				}
+				return c.Status(code).JSON(fiber.Map{
+					"error": err.Error(),
+				})
+			},
+		})
+
+		// Add middleware
+		app.Use(fiberlogger.New())
+		app.Use(fiberrecover.New())
+
+		// CORS middleware
+		app.Use(func(c *fiber.Ctx) error {
+			c.Set("Access-Control-Allow-Origin", "*")
+			c.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			
+			if c.Method() == "OPTIONS" {
+				return c.SendStatus(fiber.StatusOK)
+			}
+			
+			return c.Next()
+		})
+		{{else if eq .Router "gin"}}
+		// Create a new Gin router
+		gin.SetMode(gin.ReleaseMode)
+		router := gin.New()
+
+		// Add middleware
+		router.Use(gin.Logger())
+		router.Use(gin.Recovery())
+
+		// CORS middleware
+		router.Use(func(c *gin.Context) {
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(http.StatusOK)
+				return
+			}
+			
+			c.Next()
+		})
+		{{else if eq .Router "echo"}}
+		// Create a new Echo router
+		router := echo.New()
+
+		// Add middleware
+		router.Use(middleware.Logger())
+		router.Use(middleware.Recover())
+		router.Use(middleware.RequestID())
+
+		// CORS middleware
+		router.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				c.Response().Header().Set("Access-Control-Allow-Origin", "*")
+				c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				
+				if c.Request().Method == "OPTIONS" {
+					return c.NoContent(http.StatusOK)
+				}
+				
+				return next(c)
+			}
+		})
+		{{else if eq .Router "mux"}}
+		// Create a new Go ServeMux router
+		router := http.NewServeMux()
+		{{else if eq .Router "gorilla"}}
+		// Create a new Gorilla Mux router
+		router := mux.NewRouter()
+
+		// CORS middleware
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+
+				next.ServeHTTP(w, r)
+			})
+		})
+		{{else if eq .Router "fasthttp"}}
+		// fasthttp uses a different architecture, but we can bridge to net/http
+		// Create a standard library router for Huma compatibility
+		router := http.NewServeMux()
+		{{end}}
 
 		// Create Huma API with OpenAPI configuration
 		config := huma.DefaultConfig("advanced API", "1.0.0")
@@ -89,7 +232,21 @@ func main() {
 		config.DocsPath = "/api/docs"
 		config.OpenAPIPath = "/api/openapi"
 
+		{{if eq .Router "chi"}}
 		humaAPI := humachi.New(router, config)
+		{{else if eq .Router "fiber"}}
+		humaAPI := humafiber.New(app, config)
+		{{else if eq .Router "gin"}}
+		humaAPI := humagin.New(router, config)
+		{{else if eq .Router "echo"}}
+		humaAPI := humaecho.New(router, config)
+		{{else if eq .Router "mux"}}
+		humaAPI := humago.New(router, config)
+		{{else if eq .Router "gorilla"}}
+		humaAPI := humamux.New(router, config)
+		{{else if eq .Router "fasthttp"}}
+		humaAPI := humago.New(router, config)
+		{{end}}
 
 		// Register health check endpoint using GoFlux utility
 		goflux.AddHealthCheck(humaAPI, "/api/health", "advanced", "1.0.0")
@@ -106,11 +263,30 @@ func main() {
 		// Setup API routes
 		apiinternal.SetupRoutes(humaAPI, svc)
 
-		// Serve static files (frontend assets) - handled by GoFlux CLI
+		// Serve static files (frontend assets) - using GoFlux adapters
 		// Only in production mode, development uses proxy
 		if !options.Dev {
-			router.Handle("/*", static.GetEmbeddedHandler())
+			{{if eq .Router "chi"}}
+			router.Handle("/*", gofluxchi.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			{{else if eq .Router "fiber"}}
+			app.Use("/*", gofluxfiber.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			{{else if eq .Router "gin"}}
+			router.NoRoute(gofluxgin.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			{{else if eq .Router "echo"}}
+			router.Any("/*", gofluxecho.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			{{else if eq .Router "mux"}}
+			router.Handle("/", gofluxnethttp.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			{{else if eq .Router "gorilla"}}
+			router.PathPrefix("/").Handler(gofluxnethttp.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			{{else if eq .Router "fasthttp"}}
+			router.Handle("/", gofluxnethttp.StaticHandler(static.EmbeddedAssets, base.StaticConfig{SPAMode: true}))
+			{{end}}
 		}
+
+		{{if eq .Router "fasthttp"}}
+		// Convert net/http handler to fasthttp for fasthttp server
+		requestHandler := fasthttpadaptor.NewFastHTTPHandler(router)
+		{{end}}
 
 		// Tell the CLI how to start your server
 		hooks.OnStart(func() {
@@ -119,14 +295,28 @@ func main() {
 			fmt.Printf("📚 API documentation available at http://%s/api/docs\n", addr)
 			fmt.Printf("📋 OpenAPI spec available at http://%s/api/openapi.json\n", addr)
 
+			{{if eq .Router "fiber"}}
+			if err := app.Listen(addr); err != nil {
+				panic(fmt.Sprintf("Failed to start server: %v", err))
+			}
+			{{else if eq .Router "fasthttp"}}
+			if err := fasthttp.ListenAndServe(addr, requestHandler); err != nil {
+				panic(fmt.Sprintf("Failed to start server: %v", err))
+			}
+			{{else}}
 			server := &http.Server{
 				Addr:    addr,
-				Handler: router,
+				{{if eq .Router "chi"}}Handler: router,{{end}}
+				{{if eq .Router "gin"}}Handler: router,{{end}}
+				{{if eq .Router "echo"}}Handler: router,{{end}}
+				{{if eq .Router "mux"}}Handler: router,{{end}}
+				{{if eq .Router "gorilla"}}Handler: router,{{end}}
 			}
 
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				panic(fmt.Sprintf("Failed to start server: %v", err))
 			}
+			{{end}}
 		})
 
 		// Handle cleanup when the application shuts down
@@ -149,8 +339,29 @@ func main() {
 		config := huma.DefaultConfig("advanced API", "1.0.0")
 		config.Info.Description = "A modern REST API built with GoFlux and Huma"
 
+		{{if eq .Router "chi"}}
 		router := chi.NewRouter()
 		humaAPI := humachi.New(router, config)
+		{{else if eq .Router "fiber"}}
+		app := fiber.New()
+		humaAPI := humafiber.New(app, config)
+		{{else if eq .Router "gin"}}
+		gin.SetMode(gin.ReleaseMode)
+		router := gin.New()
+		humaAPI := humagin.New(router, config)
+		{{else if eq .Router "echo"}}
+		router := echo.New()
+		humaAPI := humaecho.New(router, config)
+		{{else if eq .Router "mux"}}
+		router := http.NewServeMux()
+		humaAPI := humago.New(router, config)
+		{{else if eq .Router "gorilla"}}
+		router := mux.NewRouter()
+		humaAPI := humamux.New(router, config)
+		{{else if eq .Router "fasthttp"}}
+		router := http.NewServeMux()
+		humaAPI := humago.New(router, config)
+		{{end}}
 
 		// Register the same endpoints for OpenAPI generation
 		database, err := db.NewDatabase()

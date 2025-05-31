@@ -7,21 +7,7 @@ package static
 
 import (
 	"embed"
-	"net/http"
-
-	goflux "github.com/barisgit/goflux/pkg"
 )
 
 // Empty embed.FS for development mode (not used)
-var embeddedAssets embed.FS
-
-// GetEmbeddedHandler returns a handler for development mode
-// In dev mode, static files are served by the frontend dev server via proxy
-func GetEmbeddedHandler() http.Handler {
-	return goflux.StaticHandler(embeddedAssets, goflux.StaticConfig{
-		AssetsDir: "",
-		SPAMode:   false,
-		DevMode:   true, // This disables static serving in development
-		APIPrefix: "/api/",
-	})
-}
+var EmbeddedAssets embed.FS

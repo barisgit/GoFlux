@@ -5,6 +5,12 @@ version: "1.0.0"
 backend:
   supported_routers:
     - "chi"
+    - "fiber"
+    - "gin"
+    - "echo"
+    - "gorilla"
+    - "mux"
+    - "fasthttp"
   features:
     - "api"
     - "static_files"

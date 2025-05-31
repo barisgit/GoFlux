@@ -3,7 +3,6 @@ package base
 import (
 	"embed"
 	"io/fs"
-	"net/http"
 	"path/filepath"
 	"strings"
 )
@@ -20,69 +19,104 @@ type StaticConfig struct {
 	APIPrefix string
 }
 
-// StaticHandler creates a configurable HTTP handler for serving embedded static files
-func StaticHandler(assets embed.FS, config StaticConfig) http.Handler {
+// StaticResponse contains the result of static file processing
+type StaticResponse struct {
+	StatusCode   int
+	ContentType  string
+	CacheControl string
+	Body         []byte
+	NotFound     bool
+}
+
+// ServeStaticFile is the core logic for serving static files, router-agnostic
+func ServeStaticFile(assets embed.FS, config StaticConfig, path string) StaticResponse {
 	// Set defaults
 	if config.APIPrefix == "" {
 		config.APIPrefix = "/api/"
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// In development mode, don't serve static files (they should be proxied)
-		if config.DevMode {
-			http.NotFound(w, r)
-			return
-		}
+	// In development mode, don't serve static files
+	if config.DevMode {
+		return StaticResponse{StatusCode: 404, NotFound: true}
+	}
 
+	switch config.APIPrefix {
+	case "none":
+		// Server static files for all paths
+		break
+	default:
 		// Don't serve static files for API endpoints
-		if strings.HasPrefix(r.URL.Path, config.APIPrefix) {
-			http.NotFound(w, r)
-			return
+		if strings.HasPrefix(path, config.APIPrefix) {
+			return StaticResponse{StatusCode: 404, NotFound: true}
 		}
+	}
 
-		// Extract and clean the path
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
+	// Extract and clean the path
+	cleanPath := strings.TrimPrefix(path, "/")
+	if cleanPath == "" {
+		cleanPath = "index.html"
+	}
+
+	// Create sub-filesystem if assets are in a subdirectory
+	var assetsFS fs.FS = assets
+
+	// Assets will always be embedded in assets directory we need to move them to the root because we embed as assets/*
+	{
+		var err error
+		assetsFS, err = fs.Sub(assets, "assets")
+		if err != nil {
+			return StaticResponse{StatusCode: 404, NotFound: true}
 		}
+	}
 
-		// Create sub-filesystem if assets are in a subdirectory
-		var assetsFS fs.FS = assets
-		if config.AssetsDir != "" {
-			var err error
-			assetsFS, err = fs.Sub(assets, config.AssetsDir)
+	// Then if the user has specified a different assets directory, we need to move them up again
+	if config.AssetsDir != "" {
+		var err error
+		assetsFS, err = fs.Sub(assets, config.AssetsDir)
+		if err != nil {
+			return StaticResponse{StatusCode: 404, NotFound: true}
+		}
+	}
+
+	// Check if file exists
+	file, err := assetsFS.Open(cleanPath)
+	if err != nil {
+		// SPA mode: serve index.html for routes that don't look like files
+		if config.SPAMode && !strings.Contains(cleanPath, ".") {
+			cleanPath = "index.html"
+			file, err = assetsFS.Open(cleanPath)
 			if err != nil {
-				http.Error(w, "Assets not available", http.StatusNotFound)
-				return
+				return StaticResponse{StatusCode: 404, NotFound: true}
 			}
+		} else {
+			return StaticResponse{StatusCode: 404, NotFound: true}
 		}
+	}
+	defer file.Close()
 
-		// Check if file exists
-		if _, err := assetsFS.Open(path); err != nil {
-			// SPA mode: serve index.html for routes that don't look like files
-			if config.SPAMode && !strings.Contains(path, ".") {
-				path = "index.html"
-				if _, err := assetsFS.Open(path); err != nil {
-					http.NotFound(w, r)
-					return
-				}
-			} else {
-				http.NotFound(w, r)
-				return
-			}
-		}
+	// Read file content
+	stat, err := file.Stat()
+	if err != nil {
+		return StaticResponse{StatusCode: 500, NotFound: true}
+	}
 
-		// Set content type and cache headers
-		setContentType(w, path)
-		setCacheHeaders(w, path)
+	body := make([]byte, stat.Size())
+	_, err = file.Read(body)
+	if err != nil {
+		return StaticResponse{StatusCode: 500, NotFound: true}
+	}
 
-		// Serve the file
-		http.FileServer(http.FS(assetsFS)).ServeHTTP(w, r)
-	})
+	return StaticResponse{
+		StatusCode:   200,
+		ContentType:  getContentType(cleanPath),
+		CacheControl: getCacheControl(cleanPath),
+		Body:         body,
+		NotFound:     false,
+	}
 }
 
-// setContentType sets appropriate content type based on file extension
-func setContentType(w http.ResponseWriter, path string) {
+// Helper functions for content type and cache control
+func getContentType(path string) string {
 	ext := filepath.Ext(path)
 	contentTypes := map[string]string{
 		".html":  "text/html; charset=utf-8",
@@ -95,23 +129,21 @@ func setContentType(w http.ResponseWriter, path string) {
 		".svg":   "image/svg+xml",
 		".ico":   "image/x-icon",
 		".woff":  "font/woff",
-		".woff2": "font/woff",
+		".woff2": "font/woff2",
 		".ttf":   "font/ttf",
 	}
 
 	if contentType, ok := contentTypes[ext]; ok {
-		w.Header().Set("Content-Type", contentType)
+		return contentType
 	}
+	return "application/octet-stream"
 }
 
-// setCacheHeaders sets appropriate cache headers
-func setCacheHeaders(w http.ResponseWriter, path string) {
+func getCacheControl(path string) string {
 	ext := filepath.Ext(path)
-
 	// Long cache for assets, short cache for HTML
 	if strings.Contains(path, "assets/") || ext == ".css" || ext == ".js" {
-		w.Header().Set("Cache-Control", "public, max-age=31536000") // 1 year
-	} else {
-		w.Header().Set("Cache-Control", "public, max-age=300") // 5 minutes
+		return "public, max-age=31536000" // 1 year
 	}
+	return "public, max-age=300" // 5 minutes
 }

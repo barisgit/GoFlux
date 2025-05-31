@@ -7,21 +7,9 @@ package static
 
 import (
 	"embed"
-	"net/http"
-
-	goflux "github.com/barisgit/goflux/pkg"
 )
 
 // Embedded frontend assets (built frontend files)
+//
 //go:embed assets/*
-var embeddedAssets embed.FS
-
-// GetEmbeddedHandler returns an HTTP handler for serving embedded static files
-func GetEmbeddedHandler() http.Handler {
-	return goflux.StaticHandler(embeddedAssets, goflux.StaticConfig{
-		AssetsDir: "assets",
-		SPAMode:   true,
-		DevMode:   false, // This build tag ensures we're in production
-		APIPrefix: "/api/",
-	})
-}
+var EmbeddedAssets embed.FS

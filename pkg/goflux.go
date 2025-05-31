@@ -23,11 +23,12 @@ var (
 	GetRouteCount      = openapi.GetRouteCount
 )
 
+// Health check utilities - re-export from base package
 var (
 	AddHealthCheck    = base.AddHealthCheck
 	CustomHealthCheck = base.CustomHealthCheck
-	StaticHandler     = base.StaticHandler
 )
 
 // Re-export types from base package
 type StaticConfig = base.StaticConfig
+type StaticResponse = base.StaticResponse

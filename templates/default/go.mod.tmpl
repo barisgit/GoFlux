@@ -4,15 +4,5 @@ go {{.GoVersion}}
 
 require (
 	github.com/danielgtaylor/huma/v2 v2.32.0
-	{{if eq .Router "chi"}}
-	github.com/go-chi/chi/v5 v5.0.14
-	{{else if eq .Router "fiber"}}
-	github.com/gofiber/fiber/v2 v2.52.5
-	{{else if eq .Router "gin"}}
-	github.com/gin-gonic/gin v1.10.0
-	{{else if eq .Router "echo"}}
-	github.com/labstack/echo/v4 v4.12.0
-	{{else if eq .Router "gorilla"}}
-	github.com/gorilla/mux v1.8.1
-	{{end}}
+	github.com/barisgit/goflux v0.1.7
 ) 
