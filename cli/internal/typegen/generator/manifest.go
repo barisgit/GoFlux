@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/barisgit/goflux/internal/typegen/types"
+	"github.com/barisgit/goflux/cli/internal/typegen/types"
 )
 
 // GenerateRouteManifest generates a JSON manifest of all routes

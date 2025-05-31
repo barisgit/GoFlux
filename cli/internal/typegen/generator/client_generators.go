@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/barisgit/goflux/internal/config"
-	"github.com/barisgit/goflux/internal/typegen/types"
+	"github.com/barisgit/goflux/config"
+	"github.com/barisgit/goflux/cli/internal/typegen/types"
 )
 
 // GenerateAPIClient generates the API client based on configuration

@@ -1,11 +1,11 @@
-package cmd
+package commands
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/barisgit/goflux/internal/config"
-	"github.com/barisgit/goflux/internal/dev"
+	"github.com/barisgit/goflux/cli/internal/dev"
+	"github.com/barisgit/goflux/config"
 
 	"github.com/spf13/cobra"
 )

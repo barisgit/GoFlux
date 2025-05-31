@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/barisgit/goflux/cmd"
+	"github.com/barisgit/goflux/cli/internal/commands"
 )
 
 var (
@@ -36,12 +36,12 @@ func main() {
 	}
 
 	// Add commands
-	rootCmd.AddCommand(cmd.NewCmd())
-	rootCmd.AddCommand(cmd.DevCmd())
-	rootCmd.AddCommand(cmd.BuildCmd())
-	rootCmd.AddCommand(cmd.GenerateTypesCmd())
-	rootCmd.AddCommand(cmd.ConfigCmd())
-	rootCmd.AddCommand(cmd.ListCmd())
+	rootCmd.AddCommand(commands.NewCmd())
+	rootCmd.AddCommand(commands.DevCmd())
+	rootCmd.AddCommand(commands.BuildCmd())
+	rootCmd.AddCommand(commands.GenerateTypesCmd())
+	rootCmd.AddCommand(commands.ConfigCmd())
+	rootCmd.AddCommand(commands.ListCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

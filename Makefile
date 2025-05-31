@@ -78,8 +78,10 @@ install: build
 
 # Run tests
 test:
-	@echo "🧪 Running tests..."
+	@echo "🧪 Running framework tests..."
 	@go test ./...
+	@echo "🧪 Running CLI tests..."
+	@cd cli && go test ./...
 
 # Quick test - create and test a project
 test-project: 
@@ -159,4 +161,20 @@ tag:
 install-goreleaser:
 	@echo "📦 Installing goreleaser..."
 	@go install github.com/goreleaser/goreleaser@latest
-	@echo "✅ goreleaser installed" 
+	@echo "✅ goreleaser installed"
+
+# Development helpers for CLI module
+cli-deps:
+	@echo "📦 Installing CLI dependencies..."
+	@cd cli && go mod tidy
+	@echo "✅ CLI dependencies updated"
+
+cli-test:
+	@echo "🧪 Running CLI tests only..."
+	@cd cli && go test ./...
+	@echo "✅ CLI tests complete"
+
+cli-build:
+	@echo "🔨 Building CLI binary only..."
+	@cd cli && go build -o flux .
+	@echo "✅ CLI binary built: cli/flux" 

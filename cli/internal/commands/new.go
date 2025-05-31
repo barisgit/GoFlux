@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"fmt"
@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/barisgit/goflux/internal/config"
-	"github.com/barisgit/goflux/internal/frontend"
-	"github.com/barisgit/goflux/internal/templates"
+	"github.com/barisgit/goflux/cli/internal/frontend"
+	"github.com/barisgit/goflux/cli/internal/templates"
+	"github.com/barisgit/goflux/config"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/cobra"

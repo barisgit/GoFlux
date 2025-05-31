@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"fmt"
@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/barisgit/goflux/internal/config"
-	"github.com/barisgit/goflux/internal/typegen/analyzer"
-	"github.com/barisgit/goflux/internal/typegen/generator"
+	"github.com/barisgit/goflux/cli/internal/typegen/analyzer"
+	"github.com/barisgit/goflux/cli/internal/typegen/generator"
+	"github.com/barisgit/goflux/config"
 
 	"github.com/spf13/cobra"
 )

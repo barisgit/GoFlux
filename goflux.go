@@ -4,7 +4,6 @@ package goflux
 
 import (
 	"github.com/barisgit/goflux/base"
-	"github.com/barisgit/goflux/dev"
 	"github.com/barisgit/goflux/openapi"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -14,7 +13,7 @@ import (
 // AddOpenAPICommand adds an OpenAPI generation command to any cobra CLI
 // This is a convenience function that wraps the dev package
 func AddOpenAPICommand(rootCmd *cobra.Command, apiProvider func() huma.API) {
-	dev.AddOpenAPICommand(rootCmd, apiProvider)
+	base.AddOpenAPICommand(rootCmd, apiProvider)
 }
 
 // OpenAPI generation utilities - re-export from openapi package

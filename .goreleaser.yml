@@ -3,10 +3,12 @@ project_name: goflux
 before:
   hooks:
     - go mod tidy
+    - cd cli && go mod tidy
     - go test ./...
+    - cd cli && go test ./...
 
 builds:
-  - main: ./cli/main.go
+  - main: ./cli
     id: "flux"
     binary: flux
     env:
@@ -84,7 +86,7 @@ release:
     
     **Go Install**
     ```bash
-    go install github.com/barisgit/goflux@{{.Tag}}
+    go install github.com/barisgit/goflux/cli@{{.Tag}}
     ```
     
     **Manual Download**
@@ -97,6 +99,7 @@ brews:
       owner: barisgit
       name: homebrew-goflux
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
     homepage: https://github.com/barisgit/goflux
     description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
     license: MIT

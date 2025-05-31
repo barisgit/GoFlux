@@ -1,9 +1,9 @@
-package cmd
+package commands
 
 import (
 	"fmt"
 
-	"github.com/barisgit/goflux/internal/templates"
+	"github.com/barisgit/goflux/cli/internal/templates"
 	"github.com/spf13/cobra"
 )
 

@@ -1,6 +1,6 @@
 package templates
 
-import "github.com/barisgit/goflux/internal/config"
+import "github.com/barisgit/goflux/config"
 
 // TemplateManifest represents the main template.yaml configuration
 type TemplateManifest struct {

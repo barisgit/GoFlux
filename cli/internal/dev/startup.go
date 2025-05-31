@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/barisgit/goflux/internal/frontend"
+	"github.com/barisgit/goflux/cli/internal/frontend"
 )
 
 func (o *DevOrchestrator) Start() error {

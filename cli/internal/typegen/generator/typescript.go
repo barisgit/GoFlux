@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/barisgit/goflux/internal/typegen/types"
+	"github.com/barisgit/goflux/cli/internal/typegen/types"
 )
 
 // GenerateTypeScriptTypes generates TypeScript type definitions

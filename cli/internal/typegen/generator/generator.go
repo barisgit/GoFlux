@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/barisgit/goflux/internal/config"
-	"github.com/barisgit/goflux/internal/typegen/types"
+	"github.com/barisgit/goflux/config"
+	"github.com/barisgit/goflux/cli/internal/typegen/types"
 )
 
 // Generate generates all API client artifacts based on configuration

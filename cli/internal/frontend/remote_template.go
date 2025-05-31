@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/barisgit/goflux/internal/config"
+	"github.com/barisgit/goflux/config"
 
 	"gopkg.in/yaml.v3"
 )

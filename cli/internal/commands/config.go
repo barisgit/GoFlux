@@ -1,11 +1,11 @@
-package cmd
+package commands
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/barisgit/goflux/internal/config"
+	"github.com/barisgit/goflux/config"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )

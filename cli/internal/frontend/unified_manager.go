@@ -3,8 +3,8 @@ package frontend
 import (
 	"fmt"
 
-	"github.com/barisgit/goflux/internal/config"
-	"github.com/barisgit/goflux/internal/templates"
+	"github.com/barisgit/goflux/config"
+	"github.com/barisgit/goflux/cli/internal/templates"
 )
 
 // UnifiedManager handles both template-based and script-based frontend generation

@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/barisgit/goflux/internal/config"
+	"github.com/barisgit/goflux/config"
 )
 
 // ScriptGenerator generates frontend using script commands

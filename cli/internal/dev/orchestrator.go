@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/barisgit/goflux/internal/config"
+	"github.com/barisgit/goflux/config"
 
 	"github.com/fsnotify/fsnotify"
 )
