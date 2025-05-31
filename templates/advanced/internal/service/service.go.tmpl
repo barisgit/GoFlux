@@ -1,0 +1,268 @@
+package service
+
+import (
+	"context"
+	"fmt"
+
+	"{{.ModuleName}}/internal/db"
+	"{{.ModuleName}}/internal/db/sqlc"
+	"{{.ModuleName}}/internal/types"
+
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+// Service handles business logic and type conversions
+type Service struct {
+	db *db.Database
+}
+
+// NewService creates a new service instance
+func NewService(database *db.Database) *Service {
+	return &Service{
+		db: database,
+	}
+}
+
+// User operations
+
+func (s *Service) GetUsers(ctx context.Context) ([]types.User, error) {
+	dbUsers, err := s.db.GetUsers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users: %w", err)
+	}
+
+	users := make([]types.User, len(dbUsers))
+	for i, dbUser := range dbUsers {
+		users[i] = s.dbUserToAPIUser(dbUser)
+	}
+
+	return users, nil
+}
+
+func (s *Service) GetUserByID(ctx context.Context, id int) (*types.User, error) {
+	dbUser, err := s.db.GetUserByID(ctx, int32(id))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user by ID: %w", err)
+	}
+
+	user := s.dbUserToAPIUser(dbUser)
+	return &user, nil
+}
+
+func (s *Service) CreateUser(ctx context.Context, req *types.CreateUserRequest) (*types.User, error) {
+	var age pgtype.Int4
+	if req.Age > 0 {
+		age = pgtype.Int4{Int32: int32(req.Age), Valid: true}
+	}
+
+	params := sqlc.CreateUserParams{
+		Name:  req.Name,
+		Email: req.Email,
+		Age:   age,
+	}
+
+	dbUser, err := s.db.CreateUser(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	user := s.dbUserToAPIUser(dbUser)
+	return &user, nil
+}
+
+func (s *Service) UpdateUser(ctx context.Context, id int, req *types.UpdateUserRequest) (*types.User, error) {
+	var age pgtype.Int4
+	if req.Age > 0 {
+		age = pgtype.Int4{Int32: int32(req.Age), Valid: true}
+	}
+
+	params := sqlc.UpdateUserParams{
+		ID:    int32(id),
+		Name:  req.Name,
+		Email: req.Email,
+		Age:   age,
+	}
+
+	dbUser, err := s.db.UpdateUser(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	user := s.dbUserToAPIUser(dbUser)
+	return &user, nil
+}
+
+func (s *Service) DeleteUser(ctx context.Context, id int) error {
+	err := s.db.DeleteUser(ctx, int32(id))
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	return nil
+}
+
+// Post operations
+
+func (s *Service) GetPosts(ctx context.Context) ([]types.Post, error) {
+	dbPosts, err := s.db.GetPosts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get posts: %w", err)
+	}
+
+	posts := make([]types.Post, len(dbPosts))
+	for i, dbPost := range dbPosts {
+		posts[i] = s.dbPostRowToAPIPost(dbPost)
+	}
+
+	return posts, nil
+}
+
+func (s *Service) GetPostByID(ctx context.Context, id int) (*types.Post, error) {
+	dbPost, err := s.db.GetPostByID(ctx, int32(id))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get post by ID: %w", err)
+	}
+
+	post := s.dbPostByIDRowToAPIPost(dbPost)
+	return &post, nil
+}
+
+func (s *Service) CreatePost(ctx context.Context, req *types.CreatePostRequest) (*types.Post, error) {
+	params := sqlc.CreatePostParams{
+		Title:     req.Title,
+		Content:   req.Content,
+		UserID:    int32(req.UserID),
+		Published: pgtype.Bool{Bool: req.Published, Valid: true},
+	}
+
+	dbPost, err := s.db.CreatePost(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create post: %w", err)
+	}
+
+	post := s.dbPostToAPIPost(dbPost)
+	return &post, nil
+}
+
+func (s *Service) UpdatePost(ctx context.Context, req *types.Post) error {
+	params := sqlc.UpdatePostParams{
+		ID:        int32(req.ID),
+		Title:     req.Title,
+		Content:   req.Content,
+		UserID:    int32(req.UserID),
+		Published: pgtype.Bool{Bool: req.Published, Valid: true},
+	}
+
+	_, err := s.db.UpdatePost(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to update post: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) DeletePost(ctx context.Context, id int) error {
+	err := s.db.DeletePost(ctx, int32(id))
+	if err != nil {
+		return fmt.Errorf("failed to delete post: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) GetPostsByUserID(ctx context.Context, userID int) ([]types.Post, error) {
+	dbPosts, err := s.db.GetPostsByUserID(ctx, int32(userID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get posts by user ID: %w", err)
+	}
+
+	posts := make([]types.Post, len(dbPosts))
+	for i, dbPost := range dbPosts {
+		posts[i] = s.dbPostToAPIPost(dbPost)
+	}
+
+	return posts, nil
+}
+
+// Helper functions for type conversion
+
+func (s *Service) dbUserToAPIUser(dbUser *sqlc.User) types.User {
+	user := types.User{
+		ID:        int(dbUser.ID),
+		Name:      dbUser.Name,
+		Email:     dbUser.Email,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+	}
+
+	if dbUser.Age.Valid {
+		user.Age = int(dbUser.Age.Int32)
+	}
+
+	return user
+}
+
+func (s *Service) dbPostToAPIPost(dbPost *sqlc.Post) types.Post {
+	post := types.Post{
+		ID:        int(dbPost.ID),
+		Title:     dbPost.Title,
+		Content:   dbPost.Content,
+		UserID:    int(dbPost.UserID),
+		CreatedAt: dbPost.CreatedAt,
+		UpdatedAt: dbPost.UpdatedAt,
+	}
+
+	if dbPost.Published.Valid {
+		post.Published = dbPost.Published.Bool
+	}
+
+	return post
+}
+
+func (s *Service) dbPostRowToAPIPost(dbPost *sqlc.GetPostsRow) types.Post {
+	post := types.Post{
+		ID:        int(dbPost.ID),
+		Title:     dbPost.Title,
+		Content:   dbPost.Content,
+		UserID:    int(dbPost.UserID),
+		CreatedAt: dbPost.CreatedAt,
+		UpdatedAt: dbPost.UpdatedAt,
+	}
+
+	if dbPost.Published.Valid {
+		post.Published = dbPost.Published.Bool
+	}
+
+	// Add user information if available
+	if dbPost.UserName != "" && dbPost.UserEmail != "" {
+		post.User = &types.User{
+			ID:    int(dbPost.UserID),
+			Name:  dbPost.UserName,
+			Email: dbPost.UserEmail,
+		}
+	}
+
+	return post
+}
+
+func (s *Service) dbPostByIDRowToAPIPost(dbPost *sqlc.GetPostByIDRow) types.Post {
+	post := types.Post{
+		ID:        int(dbPost.ID),
+		Title:     dbPost.Title,
+		Content:   dbPost.Content,
+		UserID:    int(dbPost.UserID),
+		CreatedAt: dbPost.CreatedAt,
+		UpdatedAt: dbPost.UpdatedAt,
+	}
+
+	if dbPost.Published.Valid {
+		post.Published = dbPost.Published.Bool
+	}
+
+	// Add user information
+	post.User = &types.User{
+		ID:    int(dbPost.UserID),
+		Name:  dbPost.UserName,
+		Email: dbPost.UserEmail,
+	}
+
+	return post
+}

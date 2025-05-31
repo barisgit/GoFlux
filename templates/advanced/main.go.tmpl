@@ -1,0 +1,170 @@
+package main
+
+import (
+	apiinternal "{{.ModuleName}}/internal/api"
+	"{{.ModuleName}}/internal/db"
+	"{{.ModuleName}}/internal/service"
+	"{{.ModuleName}}/internal/static"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/danielgtaylor/huma/v2/humacli"
+	"github.com/joho/godotenv"
+
+	// Import CBOR support for binary content negotiation
+	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
+
+	// Import GoFlux framework
+	goflux "github.com/barisgit/goflux/pkg"
+)
+
+// Options for the CLI - allows configuration via flags or environment variables
+type Options struct {
+	Port int    `help:"Port to listen on" short:"p" default:"3000"`
+	Host string `help:"Host to bind to" default:"127.0.0.1"`
+	Dev  bool   `help:"Development mode (disables static file serving)" default:"false"`
+}
+
+func main() {
+	// Load environment variables from .env file
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Warning: Could not load .env file: %v", err)
+	}
+
+	// Check for PORT environment variable (used by Air/development)
+	envPort := os.Getenv("PORT")
+
+	// Create a CLI app with port and host options
+	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
+		// Use environment port if provided
+		if envPort != "" {
+			if p, err := strconv.Atoi(envPort); err == nil {
+				options.Port = p
+			}
+		}
+		// Create router based on configuration
+
+		// Create a new Chi router
+		router := chi.NewRouter()
+
+		// Add middleware
+		router.Use(middleware.Logger)
+		router.Use(middleware.Recoverer)
+		router.Use(middleware.RequestID)
+		router.Use(middleware.RealIP)
+
+		// CORS middleware
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+
+				next.ServeHTTP(w, r)
+			})
+		})
+
+		// Create Huma API with OpenAPI configuration
+		config := huma.DefaultConfig("advanced API", "1.0.0")
+		config.Info.Description = "A modern REST API built with GoFlux and Huma"
+		config.Servers = []*huma.Server{
+			{URL: fmt.Sprintf("http://%s:%d", options.Host, options.Port)},
+		}
+
+		// Configure documentation and OpenAPI paths to be under /api/
+		config.DocsPath = "/api/docs"
+		config.OpenAPIPath = "/api/openapi"
+
+		humaAPI := humachi.New(router, config)
+
+		// Register health check endpoint using GoFlux utility
+		goflux.AddHealthCheck(humaAPI, "/api/health", "advanced", "1.0.0")
+
+		// Initialize database
+		database, err := db.NewDatabase()
+		if err != nil {
+			panic(fmt.Sprintf("Failed to initialize database: %v", err))
+		}
+
+		// Initialize service layer
+		svc := service.NewService(database)
+
+		// Setup API routes
+		apiinternal.SetupRoutes(humaAPI, svc)
+
+		// Serve static files (frontend assets) - handled by GoFlux CLI
+		// Only in production mode, development uses proxy
+		if !options.Dev {
+			router.Handle("/*", static.GetEmbeddedHandler())
+		}
+
+		// Tell the CLI how to start your server
+		hooks.OnStart(func() {
+			addr := fmt.Sprintf("%s:%d", options.Host, options.Port)
+			fmt.Printf("🚀 advanced server starting on http://%s\n", addr)
+			fmt.Printf("📚 API documentation available at http://%s/api/docs\n", addr)
+			fmt.Printf("📋 OpenAPI spec available at http://%s/api/openapi.json\n", addr)
+
+			server := &http.Server{
+				Addr:    addr,
+				Handler: router,
+			}
+
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				panic(fmt.Sprintf("Failed to start server: %v", err))
+			}
+		})
+
+		// Handle cleanup when the application shuts down
+		hooks.OnStop(func() {
+			fmt.Println("🛑 Shutting down server...")
+			database.Close()
+		})
+	})
+
+	// Add GoFlux OpenAPI generation command
+	// This allows running: ./server openapi -o build/openapi.json
+	goflux.AddOpenAPICommand(cli.Root(), func() huma.API {
+		// Load .env for CLI commands too
+		if err := godotenv.Load(); err != nil {
+			log.Printf("Warning: Could not load .env file: %v", err)
+		}
+
+		// This is a simplified version for CLI-only usage
+		// The full API setup happens when the server runs
+		config := huma.DefaultConfig("advanced API", "1.0.0")
+		config.Info.Description = "A modern REST API built with GoFlux and Huma"
+
+		router := chi.NewRouter()
+		humaAPI := humachi.New(router, config)
+
+		// Register the same endpoints for OpenAPI generation
+		database, err := db.NewDatabase()
+		if err != nil {
+			panic(fmt.Sprintf("Failed to initialize database: %v", err))
+		}
+		// Note: For CLI usage, we'll let the database close naturally when the command exits
+
+		svc := service.NewService(database)
+		apiinternal.SetupRoutes(humaAPI, svc)
+
+		return humaAPI
+	})
+
+	// Run the CLI. When passed no commands, it starts the server.
+	cli.Run()
+}

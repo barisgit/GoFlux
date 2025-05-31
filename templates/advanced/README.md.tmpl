@@ -1,0 +1,305 @@
+# {{.ProjectName}}
+
+{{.ProjectDescription}}
+
+*Built with GoFlux advanced template*
+
+## ✨ Features
+
+- 🎯 **Type Safe**: End-to-end type safety from Go → TypeScript
+- ⚡ **Fast Development**: Hot reload for both backend and frontend  
+- 📦 **Single Binary**: Zero dependencies in production
+- 🔧 **Auto-Generated**: Types and API client generated from Go code
+- 🌐 **Modern Frontend**: chi backend with TanStack Router frontend
+- 🗄️ **Database Ready**: PostgreSQL with SQLC and Goose migrations
+
+## 🚀 Quick Start
+
+### Database Setup (First Time)
+
+```bash
+# Complete database setup
+make db-setup
+
+# This will:
+# 1. Start PostgreSQL with Docker Compose
+# 2. Run migrations to create tables
+# 3. Generate type-safe Go code from SQL
+# 4. Seed database with sample data
+```
+
+### Development
+
+```bash
+# Start development servers (first run will setup frontend)
+flux dev
+
+# Or use make
+make dev
+```
+
+Visit:
+
+- **Application**: http://localhost:3000 (proxy)
+- **Frontend**: http://localhost:3001 (direct)  
+- **Backend**: http://localhost:3000 (direct)
+- **API**: http://localhost:3001/api/health
+- **API Docs**: http://localhost:3000/api/docs
+
+### Production Build
+
+```bash
+# Build single production binary
+flux build
+
+# Or use make
+make build
+
+# Run the binary
+./dist/server
+```
+
+## 🏗️ Project Structure
+
+```text
+advanced/
+├── flux.yaml              # GoFlux configuration
+├── Makefile               # Build commands
+├── go.mod                 # Go dependencies
+├── docker-compose.yml     # PostgreSQL containers
+├── sqlc.yaml              # SQLC configuration
+├── DATABASE.md            # Database documentation
+├── cmd/
+│   └── server/            # Go backend server
+├── internal/
+│   ├── api/               # API routes & handlers
+│   ├── db/                # Database layer
+│   │   └── sqlc/          # Generated database code
+│   ├── static/            # Static file serving (auto-generated)
+│   └── types/             # Go type definitions
+├── sql/
+│   ├── migrations/        # Database migrations (Goose)
+│   ├── queries/           # SQL queries for SQLC
+│   └── seed.sql           # Sample data
+├── frontend/              # TypeScript frontend
+│   ├── src/
+│   │   ├── types/         # Generated TypeScript types
+│   │   └── lib/           # Generated API client
+│   └── package.json
+└── scripts/               # Build and deployment scripts
+    ├── db.go              # Database management script
+    └── generate-static.ts # Static site generation
+```
+
+## 🗄️ Database Management
+
+This template includes a complete PostgreSQL setup with type-safe database operations.
+
+### Quick Commands
+
+```bash
+# Database management
+make db-setup          # Complete setup
+make db-start          # Start database
+make db-stop           # Stop database
+make db-migrate        # Run migrations
+make db-seed           # Seed with sample data
+make db-generate       # Generate Go code
+make db-status         # Check status
+
+# Test database
+make db-setup-test     # Setup test database
+make db-start-test     # Start test database
+```
+
+### Features
+
+- **Type-Safe Queries**: SQLC generates Go code from SQL
+- **Migrations**: Goose for database schema management
+- **Sample Data**: Pre-populated with realistic test data
+- **Dual Databases**: Separate development and test databases
+- **Docker Integration**: PostgreSQL containers with Docker Compose
+
+See [DATABASE.md](DATABASE.md) for complete documentation.
+
+## 🎛️ Configuration
+
+Edit `flux.yaml` to customize:
+
+```yaml
+name: advanced
+frontend:
+  framework: tanstack-router
+  dev_cmd: cd frontend && pnpm dev --port 3001 --host
+  build_cmd: cd frontend && pnpm build
+  static_gen:
+    enabled: true
+    spa_routing: true
+backend:
+  port: "3000"
+  router: chi
+build:
+  output_dir: dist
+  binary_name: server
+  embed_static: true
+```
+
+## 🔧 Available Commands
+
+### GoFlux CLI
+
+```bash
+flux dev          # Start development environment
+flux build        # Build production binary
+flux build --linux # Cross-compile for Linux
+```
+
+## 🎯 Type Generation
+
+Types are automatically generated from your Go structs:
+
+```go
+// internal/types/user.go
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+```
+
+Generates TypeScript:
+
+```typescript
+// frontend/src/types/generated.d.ts
+export interface User {
+  id: number
+  name: string
+  email: string
+}
+```
+
+And API client:
+
+```typescript
+// frontend/src/lib/api-client.ts
+export const api = {
+  users: {
+    list: async (): Promise<ApiResponse<User[]>> => { /* ... */ },
+    get: async (id: number): Promise<ApiResponse<User>> => { /* ... */ },
+    create: async (data: Omit<User, 'id'>): Promise<ApiResponse<User>> => { /* ... */ },
+    update: async (id: number, data: Partial<User>): Promise<ApiResponse<User>> => { /* ... */ },
+    delete: async (id: number): Promise<ApiResponse<any>> => { /* ... */ },
+  }
+}
+```
+
+## 🗄️ Database Integration
+
+SQLC generates type-safe database operations:
+
+```sql
+-- sql/queries/users.sql
+-- name: GetUserByID :one
+SELECT id, name, email, age, created_at, updated_at
+FROM users
+WHERE id = $1;
+
+-- name: CreateUser :one
+INSERT INTO users (name, email, age)
+VALUES ($1, $2, $3)
+RETURNING id, name, email, age, created_at, updated_at;
+```
+
+Generates Go code:
+
+```go
+// internal/db/sqlc/users.sql.go
+func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error)
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+```
+
+Use in your API handlers:
+
+```go
+// internal/api/users.go
+func (h *Handler) GetUser(ctx context.Context, input *GetUserInput) (*UserOutput, error) {
+    user, err := h.db.GetUserByID(ctx, input.ID)
+    if err != nil {
+        return nil, err
+    }
+    return &UserOutput{Body: user}, nil
+}
+```
+
+## 🌐 API Development
+
+Add new endpoints in `internal/api/`:
+
+```go
+// internal/api/users.go
+func SetupUserRoutes(api huma.API, db *db.DB) {
+    huma.Register(api, huma.Operation{
+        OperationID: "list-users",
+        Method:      http.MethodGet,
+        Path:        "/api/users",
+        Summary:     "List Users",
+    }, func(ctx context.Context, input *struct{}) (*UsersOutput, error) {
+        // Your logic here
+    })
+}
+```
+
+Types and frontend client are regenerated automatically during development.
+
+## 📦 Deployment
+
+### Single Binary Deployment
+
+```bash
+# Build
+make build
+
+# Deploy (example)
+scp ./dist/server user@production:/app/
+ssh user@production '/app/server'
+```
+
+### Docker Deployment
+
+```dockerfile
+FROM scratch
+COPY ./dist/server /server
+EXPOSE 3000
+CMD ["/server"]
+```
+
+## 🧪 Testing
+
+```bash
+# Backend tests
+go test ./...
+
+# Frontend tests
+cd frontend && pnpm test
+
+# Database tests (uses test database)
+make db-setup-test
+go test ./internal/db/...
+```
+
+## 📚 Documentation
+
+- [DATABASE.md](DATABASE.md) - Complete database setup and management guide
+- [API Documentation](http://localhost:3000/api/docs) - Interactive Swagger docs (when running)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

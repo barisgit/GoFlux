@@ -1,0 +1,78 @@
+package db
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"{{.ModuleName}}/internal/db/sqlc"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Database wraps sqlc.Queries and adds connection management
+type Database struct {
+	*sqlc.Queries
+	pool *pgxpool.Pool
+}
+
+// NewDatabase creates a new database instance
+func NewDatabase() (*Database, error) {
+	// Check if we're in test mode or want to use mock
+	if os.Getenv("USE_MOCK_DB") == "true" {
+		return NewMockDB()
+	}
+
+	// Build connection string from environment variables
+	connectionString := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		getEnvOrDefault("DB_USER", "postgres"),
+		getEnvOrDefault("DB_PASSWORD", "password"),
+		getEnvOrDefault("DB_HOST", "localhost"),
+		getEnvOrDefault("DB_PORT", "5432"),
+		getEnvOrDefault("DB_NAME", "advanced"),
+		getEnvOrDefault("DB_SSLMODE", "disable"),
+	)
+
+	return NewPostgresDB(connectionString)
+}
+
+// NewPostgresDB creates a new PostgreSQL database connection
+func NewPostgresDB(connectionString string) (*Database, error) {
+	pool, err := pgxpool.New(context.Background(), connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+	}
+
+	// Test the connection
+	if err := pool.Ping(context.Background()); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	return &Database{
+		Queries: sqlc.New(pool),
+		pool:    pool,
+	}, nil
+}
+
+// NewMockDB creates a mock database for testing
+func NewMockDB() (*Database, error) {
+	// For testing, we could use an in-memory database or proper mocks
+	// For now, return nil to indicate mock mode
+	return &Database{}, nil
+}
+
+// Close closes the database connection pool
+func (d *Database) Close() {
+	if d.pool != nil {
+		d.pool.Close()
+	}
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}

@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: goflux-postgres-dev
+    environment:
+      POSTGRES_DB: goflux_dev
+      POSTGRES_USER: goflux_user
+      POSTGRES_PASSWORD: goflux_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goflux_user -d goflux_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_test:
+    image: postgres:17-alpine
+    container_name: goflux-postgres-test
+    environment:
+      POSTGRES_DB: goflux_test
+      POSTGRES_USER: goflux_user
+      POSTGRES_PASSWORD: goflux_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goflux_user -d goflux_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_dev_data:
+  postgres_test_data:

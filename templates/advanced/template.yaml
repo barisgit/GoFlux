@@ -1,0 +1,50 @@
+name: "Advanced GoFlux Template"
+description: "Advanced full-stack template with SQLC and Goose"
+url: "https://github.com/barisgit/goflux"
+version: "1.0.0"
+backend:
+  supported_routers:
+    - "chi"
+  features:
+    - "api"
+    - "static_files"
+    - "cors"
+    - "huma"
+frontend:
+  enable_script_frontends: true
+  options:
+    - name: "default"
+      description: "TanStack Router with React, React Query and Tailwind CSS"
+      framework: "tanstack-router"
+      dev_cmd: "cd frontend && pnpm dev --port {{port}} --host"
+      build_cmd: "cd frontend && pnpm build"
+      types_dir: "src/types"
+      lib_dir: "src/lib"
+      static_gen:
+        enabled: false
+        build_ssr_cmd: ""
+        generate_cmd: ""
+        routes: []
+      api_client:
+        generator: trpc-like
+        output_file: api-client.ts
+        types_import: ../types/generated
+        react_query:
+          enabled: true
+          version: v5
+          query_options: true
+          query_keys: true
+          devtools: true
+          error_boundary: false
+        options: {}
+template_variables:
+  - name: "ProjectName"
+    type: "string"
+    description: "The name of the project"
+    default: "AdvancedProject"
+  - name: "ProjectDescription"
+    type: "select"
+    options:
+      - name: "advanced"
+        description: "Advanced GoFlux template with React Query"
+    default: "advanced"
