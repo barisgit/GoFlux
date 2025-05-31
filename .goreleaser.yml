@@ -90,9 +90,10 @@ release:
     **Manual Download**
     Download the appropriate binary for your platform from the assets below.
 
-# Homebrew tap (commented out until repository is created)
+# Homebrew tap
 brews:
-  - repository:
+  - name: flux
+    repository:
       owner: barisgit
       name: homebrew-goflux
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
