@@ -1,0 +1,26 @@
+{{if .Description}}/**
+ * {{.Description}}{{if .HasIDParam}}{{if .HasBodyData}}
+ * @param {Object} params - Parameters object
+ * @param {number} params.id - Resource ID
+ * @param {Object} params.data - Request data{{else}}
+ * @param {Object} params - Parameters object
+ * @param {number} params.id - Resource ID{{end}}{{else}}{{if .HasBodyData}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.data - Request data{{end}}{{end}}
+ * @returns {Promise<{success: boolean, data?: any, error?: any}>} API response
+ */{{else}}/**{{if .HasIDParam}}{{if .HasBodyData}}
+ * @param {Object} params - Parameters object
+ * @param {number} params.id - Resource ID
+ * @param {Object} params.data - Request data{{else}}
+ * @param {Object} params - Parameters object
+ * @param {number} params.id - Resource ID{{end}}{{else}}{{if .HasBodyData}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.data - Request data{{end}}{{end}}
+ * @returns {Promise<{success: boolean, data?: any, error?: any}>} API response
+ */{{end}}
+async ({{.ParameterSignatureJS}}) => {
+{{if .HasBodyData}}  return request(`{{.RequestPath}}`, {
+    method: '{{.Method}}',
+    body: JSON.stringify({{.DataParameter}}),
+  }){{else}}{{if eq .Method "GET"}}  return request(`{{.RequestPath}}`){{else}}  return request(`{{.RequestPath}}`, { method: '{{.Method}}' }){{end}}{{end}}
+} 

@@ -16,8 +16,11 @@ import (
 	"github.com/barisgit/goflux/templates"
 )
 
-//go:embed templates/basic-client.ts.tmpl
+//go:embed templates/basic-client.js.tmpl
 var basicClientTemplate string
+
+//go:embed templates/basic-ts-client.ts.tmpl
+var basicTSClientTemplate string
 
 //go:embed templates/axios-client.ts.tmpl
 var axiosClientTemplate string
@@ -25,8 +28,11 @@ var axiosClientTemplate string
 //go:embed templates/trpc-like-client.ts.tmpl
 var trpcLikeClientTemplate string
 
-//go:embed templates/basic-method.ts.tmpl
+//go:embed templates/basic-method.js.tmpl
 var basicMethodTemplate string
+
+//go:embed templates/basic-ts-method.ts.tmpl
+var basicTSMethodTemplate string
 
 //go:embed templates/axios-method.ts.tmpl
 var axiosMethodTemplate string
@@ -53,6 +59,7 @@ type MethodTemplateData struct {
 	Method                         string
 	MethodLower                    string
 	ParameterSignature             string
+	ParameterSignatureJS           string // JavaScript parameter signature with destructuring
 	QueryParameterSignature        string
 	QueryOptionsParameterSignature string
 	ResponseType                   string
@@ -115,7 +122,7 @@ func GenerateTypeScriptTypes(typeDefs []types.TypeDefinition) error {
 	return os.WriteFile(typesFile, []byte(content.String()), 0644)
 }
 
-// GenerateAPIClient generates the TypeScript API client based on configuration
+// GenerateAPIClient generates the API client based on configuration
 func GenerateAPIClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig) error {
 	libDir := filepath.Join("frontend", "src", "lib")
 	if err := os.MkdirAll(libDir, 0755); err != nil {
@@ -125,13 +132,19 @@ func GenerateAPIClient(routes []types.APIRoute, typeDefs []types.TypeDefinition,
 	// Use configured output file name or default
 	outputFile := config.OutputFile
 	if outputFile == "" {
-		outputFile = "api-client.ts"
+		if config.Generator == "basic" {
+			outputFile = "api-client.js"
+		} else {
+			outputFile = "api-client.ts"
+		}
 	}
 
 	// Generate based on selected generator type
 	switch config.Generator {
 	case "basic":
-		return generateBasicClient(routes, typeDefs, config, libDir, outputFile)
+		return generateBasicJSClient(routes, typeDefs, config, libDir, outputFile)
+	case "basic-ts":
+		return generateBasicTSClient(routes, typeDefs, config, libDir, outputFile)
 	case "axios":
 		return generateAxiosClient(routes, typeDefs, config, libDir, outputFile)
 	case "trpc-like":
@@ -283,7 +296,13 @@ func getMethodNameForHTTPMethod(httpMethod string, hasIDParam bool, isNested boo
 	}
 }
 
+// generateNestedObject generates TypeScript API methods (legacy - kept for compatibility)
 func generateNestedObject(content *strings.Builder, nested types.NestedAPI, indent int) {
+	generateBasicTSNestedObject(content, nested, indent)
+}
+
+// generateBasicTSNestedObject generates TypeScript API methods with proper TypeScript types
+func generateBasicTSNestedObject(content *strings.Builder, nested types.NestedAPI, indent int) {
 	indentStr := strings.Repeat("  ", indent)
 
 	// Sort keys for consistent output
@@ -305,8 +324,8 @@ func generateNestedObject(content *strings.Builder, nested types.NestedAPI, inde
 		switch v := value.(type) {
 		case types.APIMethod:
 			// Generate the method code first to extract docstring
-			templateData := createMethodTemplateData(v, "basic", false)
-			methodCode, err := executeMethodTemplate(basicMethodTemplate, templateData)
+			templateData := createMethodTemplateData(v, "basic-ts", false)
+			methodCode, err := executeMethodTemplate(basicTSMethodTemplate, templateData)
 
 			if err != nil {
 				// Fallback to original approach without docstring extraction
@@ -365,7 +384,7 @@ func generateNestedObject(content *strings.Builder, nested types.NestedAPI, inde
 		case types.NestedAPI:
 			// Generate nested object
 			content.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, quotedKey))
-			generateNestedObject(content, v, indent+1)
+			generateBasicTSNestedObject(content, v, indent+1)
 			content.WriteString(fmt.Sprintf("%s}", indentStr))
 		}
 
@@ -587,10 +606,23 @@ func isValidJSIdentifier(s string) bool {
 	return true
 }
 
-// generateBasicClient generates the original basic API client
-func generateBasicClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig, libDir, outputFile string) error {
-	usedTypes := collectUsedTypes(routes, typeDefs)
+// generateBasicJSClient generates the new basic JavaScript API client
+func generateBasicJSClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig, libDir, outputFile string) error {
 	apiObject := generateAPIObjectString(routes, "basic")
+
+	data := ClientTemplateData{
+		UsedTypes:   []string{}, // No types needed for JavaScript
+		TypesImport: "",         // No types import for JavaScript
+		APIObject:   apiObject,
+	}
+
+	return generateFromTemplate(basicClientTemplate, data, filepath.Join(libDir, outputFile))
+}
+
+// generateBasicTSClient generates the original basic TypeScript API client
+func generateBasicTSClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig, libDir, outputFile string) error {
+	usedTypes := collectUsedTypes(routes, typeDefs)
+	apiObject := generateAPIObjectString(routes, "basic-ts")
 
 	data := ClientTemplateData{
 		UsedTypes:   usedTypes,
@@ -598,7 +630,7 @@ func generateBasicClient(routes []types.APIRoute, typeDefs []types.TypeDefinitio
 		APIObject:   apiObject,
 	}
 
-	return generateFromTemplate(basicClientTemplate, data, filepath.Join(libDir, outputFile))
+	return generateFromTemplate(basicTSClientTemplate, data, filepath.Join(libDir, outputFile))
 }
 
 // generateAxiosClient generates an Axios-based API client
@@ -846,29 +878,20 @@ func generateTRPCMethodImplementationLegacy(content *strings.Builder, method typ
 
 	paramStr := strings.Join(params, ", ")
 
-	// Build request path with parameter substitution
-	requestPath := routePath
-	if method.HasIDParam {
-		re1 := regexp.MustCompile(`/:[^/]+`)
-		requestPath = re1.ReplaceAllString(requestPath, "/$${id}")
-		re2 := regexp.MustCompile(`/\{[^}]+\}`)
-		requestPath = re2.ReplaceAllString(requestPath, "/$${id}")
-	}
-
 	// Generate async function
 	content.WriteString(fmt.Sprintf("async (%s): Promise<%s> => {\n", paramStr, responseType))
 	indentStr := strings.Repeat("  ", indent+1)
 
 	if method.HasBodyData {
-		content.WriteString(fmt.Sprintf("%sreturn trpcRequest<%s>(`%s`, {\n", indentStr, responseType, requestPath))
+		content.WriteString(fmt.Sprintf("%sreturn trpcRequest<%s>(`%s`, {\n", indentStr, responseType, routePath))
 		content.WriteString(fmt.Sprintf("%s  method: '%s',\n", indentStr, route.Method))
 		content.WriteString(fmt.Sprintf("%s  body: JSON.stringify(data),\n", indentStr))
 		content.WriteString(fmt.Sprintf("%s})\n", indentStr))
 	} else {
-		if route.Method == "GET" {
-			content.WriteString(fmt.Sprintf("%sreturn trpcRequest<%s>(`%s`)\n", indentStr, responseType, requestPath))
+		if method.Route.Method == "GET" {
+			content.WriteString(fmt.Sprintf("%sreturn trpcRequest<%s>(`%s`)\n", indentStr, responseType, routePath))
 		} else {
-			content.WriteString(fmt.Sprintf("%sreturn trpcRequest<%s>(`%s`, { method: '%s' })\n", indentStr, responseType, requestPath, route.Method))
+			content.WriteString(fmt.Sprintf("%sreturn trpcRequest<%s>(`%s`, { method: '%s' })\n", indentStr, responseType, routePath, route.Method))
 		}
 	}
 
@@ -1129,13 +1152,17 @@ func generateAPIObjectString(routes []types.APIRoute, generatorType string) stri
 	content.WriteString("export const api = {\n")
 
 	switch generatorType {
+	case "basic":
+		generateBasicJSNestedObject(&content, nestedAPI, 1)
+	case "basic-ts":
+		generateBasicTSNestedObject(&content, nestedAPI, 1)
 	case "axios":
 		generateAxiosNestedObject(&content, nestedAPI, 1)
 	case "trpc-like":
 		// Will be handled separately for tRPC-like
-		generateNestedObject(&content, nestedAPI, 1)
+		generateBasicTSNestedObject(&content, nestedAPI, 1)
 	default:
-		generateNestedObject(&content, nestedAPI, 1)
+		generateBasicTSNestedObject(&content, nestedAPI, 1)
 	}
 
 	content.WriteString("}")
@@ -1431,6 +1458,7 @@ func createMethodTemplateData(method types.APIMethod, generatorType string, reac
 		Method:                         route.Method,
 		MethodLower:                    strings.ToLower(route.Method),
 		ParameterSignature:             strings.Join(params, ", "),
+		ParameterSignatureJS:           strings.Join(params, ", "),
 		QueryParameterSignature:        queryParamSig,
 		QueryOptionsParameterSignature: queryOptionsParamSig,
 		ResponseType:                   responseType,
@@ -1464,4 +1492,254 @@ func executeMethodTemplate(templateStr string, data MethodTemplateData) (string,
 	}
 
 	return buf.String(), nil
+}
+
+// generateBasicJSNestedObject generates JavaScript API methods with destructured parameters
+func generateBasicJSNestedObject(content *strings.Builder, nested types.NestedAPI, indent int) {
+	indentStr := strings.Repeat("  ", indent)
+
+	// Sort keys for consistent output
+	keys := make([]string, 0, len(nested))
+	for key := range nested {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for i, key := range keys {
+		value := nested[key]
+
+		// Quote key if it contains hyphens or other special characters
+		quotedKey := key
+		if strings.Contains(key, "-") || strings.Contains(key, " ") || !isValidJSIdentifier(key) {
+			quotedKey = fmt.Sprintf(`"%s"`, key)
+		}
+
+		switch v := value.(type) {
+		case types.APIMethod:
+			// Generate the method code first to extract docstring
+			templateData := createMethodTemplateDataJS(v)
+			methodCode, err := executeMethodTemplate(basicMethodTemplate, templateData)
+
+			if err != nil {
+				// Fallback to original approach without docstring extraction
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+				generateBasicJSMethodImplementationLegacy(content, v, indent)
+			} else {
+				// Extract docstring and method body separately
+				lines := strings.Split(methodCode, "\n")
+				var docstringLines []string
+				var methodBodyLines []string
+				inDocstring := false
+
+				for _, line := range lines {
+					trimmedLine := strings.TrimSpace(line)
+					if strings.HasPrefix(trimmedLine, "/**") {
+						inDocstring = true
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring && strings.HasSuffix(trimmedLine, "*/") {
+						inDocstring = false
+						docstringLines = append(docstringLines, line)
+					} else if inDocstring {
+						docstringLines = append(docstringLines, line)
+					} else {
+						methodBodyLines = append(methodBodyLines, line)
+					}
+				}
+
+				// Write docstring first (with proper indentation)
+				if len(docstringLines) > 0 {
+					for _, line := range docstringLines {
+						if line != "" {
+							content.WriteString(indentStr)
+						}
+						content.WriteString(line)
+						content.WriteString("\n")
+					}
+				}
+
+				// Write property name and method body
+				content.WriteString(fmt.Sprintf("%s%s: ", indentStr, quotedKey))
+
+				// Write method body (skip empty first line if it exists)
+				for j, line := range methodBodyLines {
+					if j == 0 && strings.TrimSpace(line) == "" {
+						continue
+					}
+					if j > 0 && line != "" {
+						content.WriteString(indentStr)
+					}
+					content.WriteString(line)
+					if j < len(methodBodyLines)-1 {
+						content.WriteString("\n")
+					}
+				}
+			}
+		case types.NestedAPI:
+			// Generate nested object
+			content.WriteString(fmt.Sprintf("%s%s: {\n", indentStr, quotedKey))
+			generateBasicJSNestedObject(content, v, indent+1)
+			content.WriteString(fmt.Sprintf("%s}", indentStr))
+		}
+
+		if i < len(keys)-1 {
+			content.WriteString(",")
+		}
+		content.WriteString("\n")
+	}
+}
+
+// createMethodTemplateDataJS creates template data for JavaScript method templates with destructured parameters
+func createMethodTemplateDataJS(method types.APIMethod) MethodTemplateData {
+	route := method.Route
+	routePath := route.Path[4:] // Remove "/api" prefix
+
+	// Build JavaScript parameter list with destructuring
+	var jsParams []string
+	if method.HasIDParam && method.HasBodyData {
+		// Methods like PUT /users/:id with body data
+		jsParams = append(jsParams, "{ id, data }")
+	} else if method.HasIDParam {
+		// Methods like GET /users/:id or DELETE /users/:id
+		jsParams = append(jsParams, "{ id }")
+	} else if method.HasBodyData {
+		// Methods like POST /users with body data
+		jsParams = append(jsParams, "{ data }")
+	} else {
+		// Methods like GET /users (no parameters)
+		// Leave empty - no parameters needed
+	}
+
+	// Build request path with parameter substitution
+	requestPath := routePath
+	if method.HasIDParam {
+		re1 := regexp.MustCompile(`/:[^/]+`)
+		requestPath = re1.ReplaceAllString(requestPath, "/$${id}")
+		re2 := regexp.MustCompile(`/\{[^}]+\}`)
+		requestPath = re2.ReplaceAllString(requestPath, "/$${id}")
+	}
+
+	// Extract clean description (remove parameter information since we'll use JSDoc @param tags)
+	cleanDescription := extractCleanDescription(route.Description)
+
+	return MethodTemplateData{
+		Description:          cleanDescription,
+		Method:               route.Method,
+		MethodLower:          strings.ToLower(route.Method),
+		ParameterSignatureJS: strings.Join(jsParams, ", "),
+		RequestPath:          requestPath,
+		HasIDParam:           method.HasIDParam,
+		HasBodyData:          method.HasBodyData,
+		DataParameter:        "data",
+	}
+}
+
+// extractCleanDescription extracts only the main description, removing parameter information
+func extractCleanDescription(description string) string {
+	if description == "" {
+		return ""
+	}
+
+	// Split by double newlines to separate sections
+	sections := strings.Split(description, "\n\n")
+
+	// Return only the first section (main description)
+	if len(sections) > 0 {
+		return strings.TrimSpace(sections[0])
+	}
+
+	return strings.TrimSpace(description)
+}
+
+// generateBasicJSMethodImplementationLegacy is the fallback implementation for JavaScript methods
+func generateBasicJSMethodImplementationLegacy(content *strings.Builder, method types.APIMethod, indent int) {
+	route := method.Route
+	routePath := route.Path[4:] // Remove "/api" prefix
+
+	// Build JavaScript parameter list with destructuring
+	var jsParams []string
+	if method.HasIDParam && method.HasBodyData {
+		// Methods like PUT /users/:id with body data
+		jsParams = append(jsParams, "{ id, data }")
+	} else if method.HasIDParam {
+		// Methods like GET /users/:id or DELETE /users/:id
+		jsParams = append(jsParams, "{ id }")
+	} else if method.HasBodyData {
+		// Methods like POST /users with body data
+		jsParams = append(jsParams, "{ data }")
+	} else {
+		// Methods like GET /users (no parameters)
+		// Leave empty - no parameters needed
+	}
+
+	// Build request path with parameter substitution
+	requestPath := routePath
+	if method.HasIDParam {
+		re1 := regexp.MustCompile(`/:[^/]+`)
+		requestPath = re1.ReplaceAllString(requestPath, "/$${id}")
+		re2 := regexp.MustCompile(`/\{[^}]+\}`)
+		requestPath = re2.ReplaceAllString(requestPath, "/$${id}")
+	}
+
+	paramStr := strings.Join(jsParams, ", ")
+
+	// Generate JSDoc comment
+	indentStr := strings.Repeat("  ", indent)
+	content.WriteString(fmt.Sprintf("%s/**\n", indentStr))
+
+	// Use clean description (remove parameter information since we'll use JSDoc @param tags)
+	cleanDescription := extractCleanDescription(route.Description)
+	if cleanDescription != "" {
+		content.WriteString(fmt.Sprintf("%s * %s\n", indentStr, cleanDescription))
+	}
+
+	// Add parameter documentation using proper JSDoc @param syntax
+	if method.HasIDParam || method.HasBodyData {
+		if method.HasIDParam && method.HasBodyData {
+			content.WriteString(fmt.Sprintf("%s * @param {Object} params - Parameters object\n", indentStr))
+			content.WriteString(fmt.Sprintf("%s * @param {number} params.id - Resource ID\n", indentStr))
+			content.WriteString(fmt.Sprintf("%s * @param {Object} params.data - Request data\n", indentStr))
+		} else if method.HasIDParam {
+			content.WriteString(fmt.Sprintf("%s * @param {Object} params - Parameters object\n", indentStr))
+			content.WriteString(fmt.Sprintf("%s * @param {number} params.id - Resource ID\n", indentStr))
+		} else if method.HasBodyData {
+			content.WriteString(fmt.Sprintf("%s * @param {Object} params - Parameters object\n", indentStr))
+			content.WriteString(fmt.Sprintf("%s * @param {Object} params.data - Request data\n", indentStr))
+		}
+	}
+
+	// Add return documentation
+	content.WriteString(fmt.Sprintf("%s * @returns {Promise<{success: boolean, data?: any, error?: any}>} API response\n", indentStr))
+
+	content.WriteString(fmt.Sprintf("%s */\n", indentStr))
+
+	// Generate async function
+	content.WriteString(fmt.Sprintf("%sasync (%s) => {\n", indentStr, paramStr))
+
+	methodIndentStr := strings.Repeat("  ", indent+1)
+	if method.HasBodyData {
+		content.WriteString(fmt.Sprintf("%sreturn request(`%s`, {\n", methodIndentStr, requestPath))
+		content.WriteString(fmt.Sprintf("%s  method: '%s',\n", methodIndentStr, route.Method))
+		content.WriteString(fmt.Sprintf("%s  body: JSON.stringify(data),\n", methodIndentStr))
+		content.WriteString(fmt.Sprintf("%s})\n", methodIndentStr))
+	} else {
+		if route.Method == "GET" {
+			content.WriteString(fmt.Sprintf("%sreturn request(`%s`)\n", methodIndentStr, requestPath))
+		} else {
+			content.WriteString(fmt.Sprintf("%sreturn request(`%s`, { method: '%s' })\n", methodIndentStr, requestPath, route.Method))
+		}
+	}
+
+	content.WriteString(fmt.Sprintf("%s}", indentStr))
+}
+
+// ShouldGenerateTypeScriptTypes returns true if TypeScript types should be generated for the given generator
+func ShouldGenerateTypeScriptTypes(generatorType string) bool {
+	switch generatorType {
+	case "basic":
+		return false // JavaScript doesn't need TypeScript types
+	case "basic-ts", "axios", "trpc-like":
+		return true
+	default:
+		return true // Default to generating types for unknown generators
+	}
 }

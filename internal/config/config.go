@@ -188,7 +188,7 @@ func (cm *ConfigManager) validateConfig(config *ProjectConfig) ValidationErrors 
 	}
 
 	// Validate API client configuration
-	validGenerators := []string{"basic", "axios", "trpc-like"}
+	validGenerators := []string{"basic", "basic-ts", "axios", "trpc-like"}
 	if !contains(validGenerators, config.APIClient.Generator) {
 		errors = append(errors, ValidationError{
 			Field:   "api_client.generator",
@@ -552,7 +552,7 @@ type ExternalTemplateConfig struct {
 // GetDefaultAPIClientConfig returns the default API client configuration
 func GetDefaultAPIClientConfig() APIClientConfig {
 	return APIClientConfig{
-		Generator:   "basic",
+		Generator:   "basic-ts",
 		OutputFile:  "api-client.ts",
 		TypesImport: "../types/generated",
 		ReactQuery: ReactQueryConfig{

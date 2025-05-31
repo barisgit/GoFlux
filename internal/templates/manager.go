@@ -150,26 +150,14 @@ func (m *Manager) generateFromTemplate(templateName, projectPath string, data Te
 			return nil
 		}
 
-		// Only process .tmpl files
-		if !strings.HasSuffix(path, ".tmpl") {
-			return nil
-		}
-
-		// Read template file from embedded filesystem
+		// Read file from embedded filesystem
 		content, err := templates.TemplatesFS.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("failed to read template %s: %w", path, err)
+			return fmt.Errorf("failed to read template file %s: %w", path, err)
 		}
 
-		// Parse and execute template
-		tmpl, err := template.New(filepath.Base(path)).Parse(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to parse template %s: %w", path, err)
-		}
-
-		// Determine output path (remove template prefix and .tmpl extension)
+		// Determine output path (remove template prefix)
 		outputPath := strings.TrimPrefix(path, templatePrefix)
-		outputPath = strings.TrimSuffix(outputPath, ".tmpl")
 		fullOutputPath := filepath.Join(projectPath, outputPath)
 
 		// Create directory if it doesn't exist
@@ -178,16 +166,33 @@ func (m *Manager) generateFromTemplate(templateName, projectPath string, data Te
 			return fmt.Errorf("failed to create directory %s: %w", outputDir, err)
 		}
 
-		// Create output file
-		outputFile, err := os.Create(fullOutputPath)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", fullOutputPath, err)
-		}
-		defer outputFile.Close()
+		// Process .tmpl files as templates, copy others as-is
+		if strings.HasSuffix(path, ".tmpl") {
+			// Remove .tmpl extension from output path
+			fullOutputPath = strings.TrimSuffix(fullOutputPath, ".tmpl")
 
-		// Execute template and write to file
-		if err := tmpl.Execute(outputFile, data); err != nil {
-			return fmt.Errorf("failed to execute template %s: %w", path, err)
+			// Parse and execute template
+			tmpl, err := template.New(filepath.Base(path)).Parse(string(content))
+			if err != nil {
+				return fmt.Errorf("failed to parse template %s: %w", path, err)
+			}
+
+			// Create output file
+			outputFile, err := os.Create(fullOutputPath)
+			if err != nil {
+				return fmt.Errorf("failed to create file %s: %w", fullOutputPath, err)
+			}
+			defer outputFile.Close()
+
+			// Execute template and write to file
+			if err := tmpl.Execute(outputFile, data); err != nil {
+				return fmt.Errorf("failed to execute template %s: %w", path, err)
+			}
+		} else {
+			// Copy file as-is
+			if err := os.WriteFile(fullOutputPath, content, 0644); err != nil {
+				return fmt.Errorf("failed to copy file %s: %w", fullOutputPath, err)
+			}
 		}
 
 		return nil

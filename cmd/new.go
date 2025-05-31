@@ -18,6 +18,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// FrontendSelection contains both frontend config and API client config from template
+type FrontendSelection struct {
+	FrontendConfig  config.FrontendConfig
+	APIClientConfig *config.APIClientConfig
+}
+
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "new [project-name]",
@@ -117,6 +123,9 @@ func runNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Update temp config with selected template for frontend selection
+	tempConfig.Backend.Template = templateName
+
 	// Frontend selection
 	var frontendConfig config.FrontendConfig
 	if frontendName != "" && frontendType != "" {
@@ -214,7 +223,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate project config
-	cfg := generateProjectConfig(projectName, frontendConfig, router, templateName, tempConfig)
+	cfg := generateProjectConfig(projectName, frontendConfig, router, templateName, tempConfig, unifiedManager)
 	if err := writeConfig(filepath.Join(projectName, "flux.yaml"), cfg); err != nil {
 		return err
 	}
@@ -367,7 +376,7 @@ func selectTemplateFrontend(unifiedManager *frontend.UnifiedManager) (config.Fro
 	// Find the selected frontend
 	for _, frontend := range supportedFrontends {
 		if frontend.Name == frontendName {
-			return config.FrontendConfig{
+			frontendConfig := config.FrontendConfig{
 				Framework: frontend.Framework,
 				DevCmd:    frontend.DevCmd,
 				BuildCmd:  frontend.BuildCmd,
@@ -378,7 +387,11 @@ func selectTemplateFrontend(unifiedManager *frontend.UnifiedManager) (config.Fro
 					Source: frontend.Name,
 				},
 				StaticGen: frontend.StaticGen,
-			}, nil
+			}
+
+			// Store the API client config from the template in a global variable or pass it through
+			// For now, we'll return it and handle it in the calling function
+			return frontendConfig, nil
 		}
 	}
 
@@ -509,13 +522,40 @@ func selectCustomFrontend() (config.FrontendConfig, error) {
 	}, nil
 }
 
-func generateProjectConfig(name string, frontendConfig config.FrontendConfig, backend, templateName string, tempConfig *config.ProjectConfig) config.ProjectConfig {
+func generateProjectConfig(name string, frontendConfig config.FrontendConfig, backend, templateName string, tempConfig *config.ProjectConfig, unifiedManager *frontend.UnifiedManager) config.ProjectConfig {
 	// Determine the appropriate static directory based on frontend framework
 	staticDir := "frontend/dist" // Default for most frameworks
 
 	// Next.js with static export outputs to 'out' by default
 	if frontendConfig.Framework == "nextjs" {
 		staticDir = "frontend/out"
+	}
+
+	// Use API client config from template frontend if available, otherwise use default
+	var apiClientConfig config.APIClientConfig
+	foundApiConfig := false
+
+	if frontendConfig.Template.Type == "template" {
+		supportedFrontends, _, err := unifiedManager.GetSupportedFrontends()
+		if err == nil {
+			for _, frontend := range supportedFrontends {
+				// Try multiple matching criteria to find the right frontend
+				nameMatch := frontend.Name == frontendConfig.Template.Source
+				frameworkMatch := frontend.Framework == frontendConfig.Framework
+				sourceMatch := frontend.Name == frontendConfig.Framework
+
+				if nameMatch || frameworkMatch || sourceMatch {
+					if frontend.APIClient.Generator != "" || frontend.APIClient.ReactQuery.Enabled {
+						apiClientConfig = frontend.APIClient
+						foundApiConfig = true
+						break
+					}
+				}
+			}
+		}
+	}
+	if !foundApiConfig {
+		apiClientConfig = config.GetDefaultAPIClientConfig()
 	}
 
 	return config.ProjectConfig{
@@ -535,6 +575,7 @@ func generateProjectConfig(name string, frontendConfig config.FrontendConfig, ba
 			LDFlags:     "-s -w",
 			CGOEnabled:  false,
 		},
+		APIClient:        apiClientConfig,
 		ExternalTemplate: tempConfig.ExternalTemplate,
 	}
 }

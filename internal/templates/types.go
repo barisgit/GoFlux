@@ -35,6 +35,7 @@ type FrontendTemplateInfo struct {
 	TypesDir    string                 `yaml:"types_dir"`
 	LibDir      string                 `yaml:"lib_dir"`
 	StaticGen   config.StaticGenConfig `yaml:"static_gen"`
+	APIClient   config.APIClientConfig `yaml:"api_client,omitempty"`
 }
 
 // TemplateVar represents a template variable definition

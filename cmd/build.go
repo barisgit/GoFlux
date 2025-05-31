@@ -230,16 +230,18 @@ func (b *BuildOrchestrator) generateTypes() error {
 	var wg sync.WaitGroup
 	errorChan := make(chan error, 3)
 
-	// Generate TypeScript types
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := generator.GenerateTypeScriptTypes(analysis.TypeDefs); err != nil {
-			errorChan <- fmt.Errorf("generating TypeScript types: %w", err)
-		}
-	}()
+	// Generate TypeScript types only if needed
+	if generator.ShouldGenerateTypeScriptTypes(b.config.APIClient.Generator) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := generator.GenerateTypeScriptTypes(analysis.TypeDefs); err != nil {
+				errorChan <- fmt.Errorf("generating TypeScript types: %w", err)
+			}
+		}()
+	}
 
-	// Generate API client using project config
+	// Generate API client
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
