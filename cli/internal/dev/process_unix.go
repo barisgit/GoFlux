@@ -7,59 +7,76 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
-	"time"
 )
 
-func (o *DevOrchestrator) stopBackendProcessUnsafe() {
-	if o.backendProcess == nil || o.backendProcess.Process == nil {
-		return
+// setupProcessGroup sets up process group for Unix systems
+func (o *DevOrchestrator) setupProcessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+		Pgid:    0,
 	}
+}
 
-	pid := o.backendProcess.Process.Pid
-	o.log(fmt.Sprintf("🛑 Stopping backend (PID: %d)...", pid), "\x1b[34m")
+// shutdownProcesses handles graceful shutdown of frontend and other processes on Unix
+func (o *DevOrchestrator) shutdownProcesses() {
+	done := make(chan bool, len(o.processes))
 
-	// Try graceful shutdown first
-	o.backendProcess.Process.Signal(syscall.SIGTERM)
+	// Try graceful shutdown of all processes
+	for _, processInfo := range o.processes {
+		if processInfo.Process != nil && processInfo.Process.Process != nil {
+			o.log(fmt.Sprintf("🛑 Stopping %s (PID: %d)...", processInfo.Name, processInfo.Process.Process.Pid), processInfo.Color)
 
-	// Wait up to 3 seconds for graceful shutdown
-	done := make(chan error, 1)
-	go func() {
-		done <- o.backendProcess.Wait()
-	}()
+			// Get process group ID
+			pgid, err := syscall.Getpgid(processInfo.Process.Process.Pid)
+			if err != nil {
+				pgid = processInfo.Process.Process.Pid // fallback to PID if can't get PGID
+			}
 
-	select {
-	case err := <-done:
-		if err != nil {
-			o.log("⚠️  Backend exited with error", "\x1b[33m")
+			// Send SIGTERM to process group
+			syscall.Kill(-pgid, syscall.SIGTERM)
+
+			go func(proc *exec.Cmd, name string, processGroupID int) {
+				defer func() { done <- true }()
+
+				// Wait for graceful shutdown
+				gracefulDone := make(chan error, 1)
+				go func() {
+					gracefulDone <- proc.Wait()
+				}()
+
+				select {
+				case err := <-gracefulDone:
+					if err != nil {
+						o.log(fmt.Sprintf("⚠️  %s exited with error: %v", name, err), "\x1b[33m")
+					} else {
+						o.log(fmt.Sprintf("✅ %s stopped gracefully", name), "\x1b[32m")
+					}
+				case <-o.ctx.Done():
+					// Context cancelled - force kill
+					o.log(fmt.Sprintf("💀 Force killing %s and children...", name), "\x1b[31m")
+					syscall.Kill(-processGroupID, syscall.SIGKILL)
+				}
+			}(processInfo.Process, processInfo.Name, pgid)
 		} else {
-			o.log("✅ Backend stopped gracefully", "\x1b[32m")
+			done <- true // No process to stop
 		}
-	case <-time.After(3 * time.Second):
-		o.log("💀 Force killing backend (timeout)...", "\x1b[31m")
-		o.backendProcess.Process.Kill()
-		syscall.Kill(pid, syscall.SIGKILL)
 	}
 
-	o.backendProcess = nil
-}
-
-func (o *DevOrchestrator) killProcessGroup(pid int) error {
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		pgid = pid // fallback to PID if can't get PGID
+	// Wait for all processes to finish
+	for i := 0; i < len(o.processes); i++ {
+		select {
+		case <-done:
+			// Process finished
+		case <-o.ctx.Done():
+			// Context cancelled, stop waiting
+			return
+		}
 	}
-	return syscall.Kill(-pgid, syscall.SIGTERM)
 }
 
-func (o *DevOrchestrator) forceKillProcessGroup(pid int) error {
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		pgid = pid // fallback to PID if can't get PGID
-	}
-	return syscall.Kill(-pgid, syscall.SIGKILL)
-}
-
-func (o *DevOrchestrator) forceKillPortProcesses() {
+// forceKillPortProcesses kills any processes using the configured ports on Unix
+func (pm *ProcessManager) forceKillPortProcesses() {
+	o := pm.orchestrator
 	ports := []int{o.config.Port, o.frontendPort, o.backendPort}
 
 	for _, port := range ports {

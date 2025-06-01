@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/barisgit/goflux/config"
 	"github.com/barisgit/goflux/cli/internal/typegen/types"
+	"github.com/barisgit/goflux/config"
 )
 
 // buildNestedAPIStructure builds a nested API structure from routes
@@ -42,10 +42,11 @@ func buildNestedAPIStructure(routes []types.APIRoute) types.NestedAPI {
 		methodName := getMethodNameForHTTPMethod(route.Method, hasIDParam, len(resourceParts) > 1)
 
 		method := types.APIMethod{
-			Route:       route,
-			MethodName:  methodName,
-			HasIDParam:  hasIDParam,
-			HasBodyData: route.RequestType != "",
+			Route:          route,
+			MethodName:     methodName,
+			HasIDParam:     hasIDParam,
+			HasBodyData:    route.RequestType != "",
+			HasQueryParams: len(route.QueryParameters) > 0,
 		}
 
 		// Build nested structure - but only use the resource parts, not parameters
@@ -251,6 +252,13 @@ func createMethodTemplateData(method types.APIMethod, generatorType string, reac
 		params = append(params, "data: "+requestType)
 	}
 
+	// Build query parameters type and add to parameter list
+	var queryParamsType string
+	if method.HasQueryParams {
+		queryParamsType = buildQueryParamsType(route.QueryParameters)
+		params = append(params, "params?: "+queryParamsType)
+	}
+
 	responseType := route.ResponseType
 	if responseType == "" {
 		responseType = "unknown"
@@ -271,9 +279,17 @@ func createMethodTemplateData(method types.APIMethod, generatorType string, reac
 		} else if (route.Method == "PUT" || route.Method == "PATCH") && !strings.Contains(requestType, "Partial") {
 			requestType = fmt.Sprintf("Partial<%s>", requestType)
 		}
-		mutationVariableType = fmt.Sprintf("{ id: number; data: %s }", requestType)
+		if method.HasQueryParams {
+			mutationVariableType = fmt.Sprintf("{ id: number; data: %s; params?: %s }", requestType, queryParamsType)
+		} else {
+			mutationVariableType = fmt.Sprintf("{ id: number; data: %s }", requestType)
+		}
 	} else if method.HasIDParam {
-		mutationVariableType = "number"
+		if method.HasQueryParams {
+			mutationVariableType = fmt.Sprintf("{ id: number; params?: %s }", queryParamsType)
+		} else {
+			mutationVariableType = "number"
+		}
 	} else if method.HasBodyData {
 		requestType := route.RequestType
 		if route.Method == "POST" && !strings.Contains(requestType, "Omit") {
@@ -281,7 +297,13 @@ func createMethodTemplateData(method types.APIMethod, generatorType string, reac
 		} else if (route.Method == "PUT" || route.Method == "PATCH") && !strings.Contains(requestType, "Partial") {
 			requestType = fmt.Sprintf("Partial<%s>", requestType)
 		}
-		mutationVariableType = requestType
+		if method.HasQueryParams {
+			mutationVariableType = fmt.Sprintf("{ data: %s; params?: %s }", requestType, queryParamsType)
+		} else {
+			mutationVariableType = requestType
+		}
+	} else if method.HasQueryParams {
+		mutationVariableType = queryParamsType
 	} else {
 		mutationVariableType = "void"
 	}
@@ -291,6 +313,18 @@ func createMethodTemplateData(method types.APIMethod, generatorType string, reac
 	if method.HasIDParam {
 		queryParamSig = "id: number, "
 		queryOptionsParamSig = "id: number"
+	}
+	if method.HasQueryParams {
+		if queryParamSig != "" {
+			queryParamSig += "params?: " + queryParamsType + ", "
+		} else {
+			queryParamSig = "params?: " + queryParamsType + ", "
+		}
+		if queryOptionsParamSig != "" {
+			queryOptionsParamSig += ", params?: " + queryParamsType
+		} else {
+			queryOptionsParamSig = "params?: " + queryParamsType
+		}
 	}
 
 	// Build request path for mutations (React Query uses different variable patterns)
@@ -309,11 +343,42 @@ func createMethodTemplateData(method types.APIMethod, generatorType string, reac
 		RequestPathForMutation:         requestPathForMutation,
 		HasIDParam:                     method.HasIDParam,
 		HasBodyData:                    method.HasBodyData,
+		HasQueryParams:                 method.HasQueryParams,
+		QueryParamsType:                queryParamsType,
 		DataParameter:                  dataParameter,
 		QueryKey:                       strings.TrimPrefix(route.Path, "/api/"),
 		MutationVariableType:           mutationVariableType,
 		ReactQueryEnabled:              reactQueryEnabled,
 	}
+}
+
+// buildQueryParamsType builds a TypeScript type for query parameters
+func buildQueryParamsType(queryParams []types.QueryParameter) string {
+	if len(queryParams) == 0 {
+		return ""
+	}
+
+	var fields []string
+	for _, param := range queryParams {
+		fieldType := param.Type
+		if len(param.Enum) > 0 {
+			// Use union type for enums
+			enumValues := make([]string, len(param.Enum))
+			for i, val := range param.Enum {
+				enumValues[i] = fmt.Sprintf("'%s'", val)
+			}
+			fieldType = strings.Join(enumValues, " | ")
+		}
+
+		optional := ""
+		if !param.Required {
+			optional = "?"
+		}
+
+		fields = append(fields, fmt.Sprintf("%s%s: %s", param.Name, optional, fieldType))
+	}
+
+	return fmt.Sprintf("{ %s }", strings.Join(fields, "; "))
 }
 
 // createMethodTemplateDataJS creates template data for JavaScript method templates with destructured parameters
@@ -322,15 +387,27 @@ func createMethodTemplateDataJS(method types.APIMethod) MethodTemplateData {
 
 	// Build JavaScript parameter list with destructuring
 	var jsParams []string
-	if method.HasIDParam && method.HasBodyData {
+	if method.HasIDParam && method.HasBodyData && method.HasQueryParams {
+		// Methods like PUT /users/:id with body data and query params
+		jsParams = append(jsParams, "{ id, data, params }")
+	} else if method.HasIDParam && method.HasBodyData {
 		// Methods like PUT /users/:id with body data
 		jsParams = append(jsParams, "{ id, data }")
+	} else if method.HasIDParam && method.HasQueryParams {
+		// Methods like GET /users/:id with query params
+		jsParams = append(jsParams, "{ id, params }")
 	} else if method.HasIDParam {
 		// Methods like GET /users/:id or DELETE /users/:id
 		jsParams = append(jsParams, "{ id }")
+	} else if method.HasBodyData && method.HasQueryParams {
+		// Methods like POST /users with body data and query params
+		jsParams = append(jsParams, "{ data, params }")
 	} else if method.HasBodyData {
 		// Methods like POST /users with body data
 		jsParams = append(jsParams, "{ data }")
+	} else if method.HasQueryParams {
+		// Methods like GET /users with query params
+		jsParams = append(jsParams, "{ params }")
 	} else {
 		// Methods like GET /users (no parameters)
 		// Leave empty - no parameters needed
@@ -350,6 +427,7 @@ func createMethodTemplateDataJS(method types.APIMethod) MethodTemplateData {
 		RequestPath:          requestPath,
 		HasIDParam:           method.HasIDParam,
 		HasBodyData:          method.HasBodyData,
+		HasQueryParams:       method.HasQueryParams,
 		DataParameter:        "data",
 	}
 }

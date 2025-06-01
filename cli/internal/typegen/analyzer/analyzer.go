@@ -187,6 +187,11 @@ func parseOpenAPISpec(spec *OpenAPISpec, debug bool) *types.APIAnalysis {
 			// Extract response type from responses
 			route.ResponseType = extractTypeFromResponses(operation.Responses)
 
+			// Extract query parameters
+			if operation.Parameters != nil {
+				route.QueryParameters = extractQueryParameters(operation.Parameters)
+			}
+
 			analysis.Routes = append(analysis.Routes, route)
 		}
 	}
@@ -437,4 +442,72 @@ func buildRouteDescription(operation *Operation) string {
 	}
 
 	return strings.TrimSpace(description.String())
+}
+
+// extractQueryParameters extracts query parameters from operation parameters
+func extractQueryParameters(parameters []Parameter) []types.QueryParameter {
+	var queryParams []types.QueryParameter
+
+	for _, param := range parameters {
+		if param.In == "query" && param.Schema != nil {
+			queryParam := types.QueryParameter{
+				Name:        param.Name,
+				Type:        convertSchemaToTSType(param.Schema),
+				Required:    param.Required,
+				Description: param.Description,
+			}
+
+			// Extract default value if present
+			if param.Schema.Example != nil {
+				queryParam.Default = param.Schema.Example
+			}
+
+			// Extract enum values if present
+			if len(param.Schema.Enum) > 0 {
+				enumValues := make([]string, len(param.Schema.Enum))
+				for i, val := range param.Schema.Enum {
+					enumValues[i] = fmt.Sprintf("%v", val)
+				}
+				queryParam.Enum = enumValues
+			}
+
+			queryParams = append(queryParams, queryParam)
+		}
+	}
+
+	return queryParams
+}
+
+// convertSchemaToTSType converts an OpenAPI schema to TypeScript type string
+func convertSchemaToTSType(schema *Schema) string {
+	if schema == nil {
+		return "unknown"
+	}
+
+	if schema.Ref != "" {
+		parts := strings.Split(schema.Ref, "/")
+		if len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+	}
+
+	typeStr := getTypeString(schema.Type)
+	switch typeStr {
+	case "string":
+		return "string"
+	case "number", "integer":
+		return "number"
+	case "boolean":
+		return "boolean"
+	case "array":
+		if schema.Items != nil {
+			itemType := convertSchemaToTSType(schema.Items)
+			return itemType + "[]"
+		}
+		return "unknown[]"
+	case "object":
+		return "Record<string, unknown>"
+	default:
+		return "unknown"
+	}
 }

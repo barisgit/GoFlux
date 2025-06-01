@@ -92,18 +92,40 @@ Create dependencies without generics - types are inferred automatically:
 
 # Middleware
 
-Middleware uses standard Huma signatures with API available in context:
+Middleware uses standard Huma signatures with optional tRPC-style context extensions:
 
-	// Create middleware with clean signatures
+	// Traditional approach - clean and simple
 	func AuthMiddleware(ctx huma.Context, next func(huma.Context)) {
 		token := ctx.Header("Authorization")
 		if token == "" {
-			goflux.WriteMiddlewareErr(ctx, 401, "Authentication required")
-			return // Don't call next()
+			goflux.WriteErr(ctx, 401, "Authentication required")
+			return
 		}
-		// Set user in context...
 		next(ctx)
 	}
+
+	// tRPC-style approach - wrap context for method calls
+	func AuthMiddleware(ctx huma.Context, next func(huma.Context)) {
+		fluxCtx := goflux.Wrap(ctx) // Add convenience methods
+
+		token := ctx.Header("Authorization")
+		if token == "" {
+			fluxCtx.Unauthorized("Authentication required")
+			return
+		}
+
+		if !isValidToken(token) {
+			fluxCtx.Forbidden("Invalid token")
+			return
+		}
+
+		next(ctx)
+	}
+
+	// Available methods on FluxContext:
+	// Error responses: WriteErr, BadRequest, Unauthorized, Forbidden, NotFound, InternalServerError
+	// Success responses: OK, Created, NoContent, WriteResponse
+	// Example: fluxCtx.BadRequest("Invalid input", err)
 
 	// Use middleware in procedures
 	authProcedure := goflux.PublicProcedure(dbDep).Use(AuthMiddleware)
@@ -146,10 +168,11 @@ GoFlux is designed to be a drop-in replacement for Huma:
 
 // Dependency represents something that can be injected
 type Dependency struct {
-	Name        string
-	LoadFn      func(ctx context.Context, input interface{}) (interface{}, error)
-	TypeFn      func() reflect.Type
-	InputFields reflect.Type // Optional: additional input fields this dependency needs
+	Name               string
+	LoadFn             func(ctx context.Context, input interface{}) (interface{}, error)
+	TypeFn             func() reflect.Type
+	InputFields        reflect.Type // Optional: additional input fields this dependency needs
+	RequiredMiddleware []Middleware // Middleware required for this dependency to function
 }
 
 // Load executes the dependency's load function
@@ -162,9 +185,19 @@ func (d *Dependency) Type() reflect.Type {
 	return d.TypeFn()
 }
 
+// RequiresMiddleware adds middleware requirements to this dependency
+// Dependencies can declare what middleware they need to function properly
+// Example: CurrentUserDep.RequiresMiddleware(AuthMiddleware)
+func (d Dependency) RequiresMiddleware(middleware ...Middleware) Dependency {
+	newDep := d // Copy the dependency
+	newDep.RequiredMiddleware = append(newDep.RequiredMiddleware, middleware...)
+	return newDep
+}
+
 // NewDependency creates a new dependency with automatic type inference
 // The loadFn must have signature: func(context.Context, interface{}) (T, error)
 // where T is the type this dependency provides
+// TODO: consider removing name parameter, as it is only used for error messages
 func NewDependency(name string, loadFn interface{}) Dependency {
 	fnType := reflect.TypeOf(loadFn)
 
@@ -250,7 +283,7 @@ func (d Dependency) WithInputFields(inputExample interface{}) Dependency {
 // NewDependencyWithInput creates a dependency that requires additional input fields
 // This is a convenience function that combines NewDependency and WithInputFields
 // The inputExample should be a zero value of the input struct type
-func NewDependencyWithInput(name string, loadFn interface{}, inputExample interface{}) Dependency {
+func NewDependencyWithInput(name string, inputExample interface{}, loadFn interface{}) Dependency {
 	return NewDependency(name, loadFn).WithInputFields(inputExample)
 }
 
@@ -282,22 +315,79 @@ func InjectDeps(deps ...Dependency) *Procedure {
 	}
 }
 
-// Use adds middleware to the procedure
-func (p *Procedure) Use(middleware Middleware) *Procedure {
+// Use adds middleware to the procedure with automatic deduplication
+// Duplicate middleware (identified by function pointer) are automatically filtered out
+func (p *Procedure) Use(middleware ...Middleware) *Procedure {
+	// Combine existing middleware with new ones, then deduplicate
+	combined := append(p.middlewares, middleware...)
 	return &Procedure{
 		deps:        p.deps,
-		middlewares: append(p.middlewares, middleware),
+		middlewares: deduplicateMiddleware(combined),
 		security:    p.security,
 	}
 }
 
-// Inject adds additional dependencies
+// Inject adds additional dependencies with automatic middleware collection and deduplication
+// Also collects any middleware required by the new dependencies
 func (p *Procedure) Inject(deps ...Dependency) *Procedure {
+	// Collect all middleware from dependencies
+	var allMiddleware []Middleware
+	allMiddleware = append(allMiddleware, p.middlewares...)
+
+	// Add middleware required by existing dependencies
+	for _, dep := range p.deps {
+		allMiddleware = append(allMiddleware, dep.RequiredMiddleware...)
+	}
+
+	// Add middleware required by new dependencies
+	for _, dep := range deps {
+		allMiddleware = append(allMiddleware, dep.RequiredMiddleware...)
+	}
+
 	return &Procedure{
 		deps:        append(p.deps, deps...),
-		middlewares: p.middlewares,
+		middlewares: deduplicateMiddleware(allMiddleware),
 		security:    p.security,
 	}
+}
+
+// getMiddlewarePointer returns the function pointer value for middleware deduplication
+func getMiddlewarePointer(middleware Middleware) uintptr {
+	return reflect.ValueOf(middleware).Pointer()
+}
+
+// deduplicateMiddleware removes duplicate middleware while preserving order
+// Uses function pointers to identify unique middleware functions
+func deduplicateMiddleware(middlewares []Middleware) []Middleware {
+	seen := make(map[uintptr]bool)
+	var result []Middleware
+
+	for _, middleware := range middlewares {
+		ptr := getMiddlewarePointer(middleware)
+		if !seen[ptr] {
+			seen[ptr] = true
+			result = append(result, middleware)
+		}
+	}
+
+	return result
+}
+
+// removeMiddleware removes specific middleware from a slice
+func removeMiddleware(middlewares []Middleware, toRemove ...Middleware) []Middleware {
+	removeSet := make(map[uintptr]bool)
+	for _, middleware := range toRemove {
+		removeSet[getMiddlewarePointer(middleware)] = true
+	}
+
+	var result []Middleware
+	for _, middleware := range middlewares {
+		if !removeSet[getMiddlewarePointer(middleware)] {
+			result = append(result, middleware)
+		}
+	}
+
+	return result
 }
 
 // WithSecurity adds security requirements to the procedure
@@ -309,26 +399,46 @@ func (p *Procedure) WithSecurity(security ...map[string][]string) *Procedure {
 	}
 }
 
+// findUserCodeLocation walks up the call stack to find the first non-framework code location
+// This ensures error messages point to the user's code, not the framework code
+func findUserCodeLocation() (string, int) {
+	for i := 1; i < 10; i++ { // Check up to 10 stack frames
+		_, callerFile, callerLine, ok := runtime.Caller(i)
+		if !ok {
+			break
+		}
+
+		// Skip framework code - look for user code
+		if !strings.Contains(callerFile, "/goflux/goflux/") &&
+			!strings.Contains(callerFile, "\\goflux\\goflux\\") {
+			// Extract relative path for better error reporting
+			relativeFile := filepath.Base(callerFile)
+			if strings.Contains(callerFile, "/") {
+				// Try to get a more useful relative path (last 2-3 directories)
+				parts := strings.Split(callerFile, "/")
+				if len(parts) >= 3 {
+					relativeFile = strings.Join(parts[len(parts)-3:], "/")
+				} else if len(parts) >= 2 {
+					relativeFile = strings.Join(parts[len(parts)-2:], "/")
+				}
+			}
+			return relativeFile, callerLine
+		}
+	}
+
+	// Fallback if we can't find user code
+	_, callerFile, callerLine, _ := runtime.Caller(1)
+	return filepath.Base(callerFile), callerLine
+}
+
 // Register method for Procedure - procedures can now register themselves!
 func (p *Procedure) Register(
 	api huma.API,
 	operation huma.Operation,
 	handler interface{},
 ) {
-	// Capture caller information for better error reporting
-	_, callerFile, callerLine, _ := runtime.Caller(1)
-
-	// Extract just the filename and relative path to avoid exposing build machine paths
-	relativeFile := filepath.Base(callerFile)
-	if strings.Contains(callerFile, "/") {
-		// Try to get a more useful relative path (last 2-3 directories)
-		parts := strings.Split(callerFile, "/")
-		if len(parts) >= 3 {
-			relativeFile = strings.Join(parts[len(parts)-3:], "/")
-		} else if len(parts) >= 2 {
-			relativeFile = strings.Join(parts[len(parts)-2:], "/")
-		}
-	}
+	// Find the actual user code location (skip framework code)
+	relativeFile, callerLine := findUserCodeLocation()
 
 	handlerValue := reflect.ValueOf(handler)
 	handlerType := handlerValue.Type()
@@ -406,7 +516,34 @@ func (p *Procedure) Register(
 			paramType := handlerType.In(i)
 
 			if dep, exists := depsByType[paramType]; exists {
-				resolved, err := dep.Load(ctx.Context(), input)
+				// Parse dependency-specific input if the dependency has InputFields
+				var depInput interface{}
+				if dep.InputFields != nil {
+					// Create an instance of the dependency's input type
+					depInputPtr := reflect.New(dep.InputFields)
+					depInputValue := depInputPtr.Elem()
+
+					// Parse dependency input fields from the request
+					for j := 0; j < dep.InputFields.NumField(); j++ {
+						field := dep.InputFields.Field(j)
+						if !field.IsExported() {
+							continue
+						}
+
+						fieldValue := depInputValue.Field(j)
+						if err := parseInputFieldWithDefaults(ctx, field, fieldValue); err != nil {
+							huma.WriteErr(api, ctx, http.StatusBadRequest, "Failed to parse dependency input", err)
+							return
+						}
+					}
+
+					depInput = depInputPtr.Interface()
+				} else {
+					// No specific input fields, pass the main input
+					depInput = input
+				}
+
+				resolved, err := dep.Load(ctx.Context(), depInput)
 				if err != nil {
 					// Don't write error if response was already started
 					if ctx.Status() == 0 {
@@ -524,7 +661,7 @@ func parseHumaInput(api huma.API, ctx huma.Context, inputPtr reflect.Value, inpu
 		fieldValue := input.Field(i)
 
 		// Handle different parameter types
-		if err := parseInputField(ctx, field, fieldValue); err != nil {
+		if err := parseInputFieldWithDefaults(ctx, field, fieldValue); err != nil {
 			return fmt.Errorf("failed to parse field %s: %w", field.Name, err)
 		}
 
@@ -539,41 +676,43 @@ func parseHumaInput(api huma.API, ctx huma.Context, inputPtr reflect.Value, inpu
 	return nil
 }
 
-// parseInputField parses a single input field based on its tags
-func parseInputField(ctx huma.Context, field reflect.StructField, fieldValue reflect.Value) error {
+// parseInputFieldWithDefaults parses a single input field and applies defaults from struct tags
+func parseInputFieldWithDefaults(ctx huma.Context, field reflect.StructField, fieldValue reflect.Value) error {
+	var value string
+
 	// Handle path parameters
 	if pathParam := field.Tag.Get("path"); pathParam != "" {
-		value := ctx.Param(pathParam)
-		return setFieldValue(fieldValue, value, field.Type)
-	}
-
-	// Handle query parameters
-	if queryParam := field.Tag.Get("query"); queryParam != "" {
+		value = ctx.Param(pathParam)
+	} else if queryParam := field.Tag.Get("query"); queryParam != "" {
+		// Handle query parameters
 		paramName := strings.Split(queryParam, ",")[0] // Handle "name,explode" format
-		value := ctx.Query(paramName)
-		return setFieldValue(fieldValue, value, field.Type)
-	}
-
-	// Handle header parameters
-	if headerParam := field.Tag.Get("header"); headerParam != "" {
-		value := ctx.Header(headerParam)
-		return setFieldValue(fieldValue, value, field.Type)
-	}
-
-	// Handle cookie parameters
-	if cookieParam := field.Tag.Get("cookie"); cookieParam != "" {
-		// Get cookie value from request headers
+		value = ctx.Query(paramName)
+	} else if headerParam := field.Tag.Get("header"); headerParam != "" {
+		// Handle header parameters
+		value = ctx.Header(headerParam)
+	} else if cookieParam := field.Tag.Get("cookie"); cookieParam != "" {
+		// Handle cookie parameters
 		cookieHeader := ctx.Header("Cookie")
 		if cookieHeader != "" {
 			// Parse cookies manually since huma.Context doesn't provide Cookie method
 			cookies := parseCookies(cookieHeader)
-			if value, exists := cookies[cookieParam]; exists {
-				return setFieldValue(fieldValue, value, field.Type)
+			if cookieValue, exists := cookies[cookieParam]; exists {
+				value = cookieValue
 			}
+		}
+	} else {
+		return nil // Not a parameter field
+	}
+
+	// If value is empty, check for default value in struct tag
+	if value == "" {
+		if defaultValue := field.Tag.Get("default"); defaultValue != "" {
+			value = defaultValue
 		}
 	}
 
-	return nil
+	// Set the field value using the resolved value (either from request or default)
+	return setFieldValue(fieldValue, value, field.Type)
 }
 
 // parseCookies parses the Cookie header string and returns a map of cookie name to value
@@ -1203,7 +1342,7 @@ func processDependencyInputFields(operation *huma.Operation, registry huma.Regis
 		// Check if the dependency has InputFields defined
 		if dep.InputFields != nil {
 			// Process each field in the dependency's InputFields
-			for i := 0; i < dep.InputFields.NumField(); i++ {
+			for i := range dep.InputFields.NumField() {
 				field := dep.InputFields.Field(i)
 				if !field.IsExported() {
 					continue
@@ -1343,7 +1482,7 @@ func Options(api huma.API, path string, handler interface{}, operationHandlers .
 }
 
 // GoFluxAPI is a special context key for storing the API instance
-const gofluxAPIKey = "goflux-api"
+const gofluxAPIKey = "goflux-api-do-not-use-this-key"
 
 // GetAPI retrieves the API instance from the context for use in middleware and dependencies
 func GetAPI(ctx huma.Context) huma.API {
@@ -1353,9 +1492,147 @@ func GetAPI(ctx huma.Context) huma.API {
 	panic("GoFlux API not found in context - this should not happen in properly configured handlers")
 }
 
-// WriteMiddlewareErr is a convenience helper for middleware to write errors
-// Uses the API from context, so middleware only needs the context
-func WriteMiddlewareErr(ctx huma.Context, status int, message string, errors ...error) {
+// WriteErr writes an error response with the given status and message
+func WriteErr(ctx huma.Context, status int, message string, errors ...error) {
 	api := GetAPI(ctx)
 	huma.WriteErr(api, ctx, status, message, errors...)
+}
+
+// ============================================================================
+// TRPC-STYLE CONTEXT EXTENSIONS
+// ============================================================================
+
+// FluxContext extends huma.Context with convenience methods
+type FluxContext struct {
+	huma.Context
+}
+
+// Wrap wraps a huma.Context to add GoFlux convenience methods
+func Wrap(ctx huma.Context) *FluxContext {
+	return &FluxContext{Context: ctx}
+}
+
+// WriteErr writes an error response with the given status and message
+func (ctx *FluxContext) WriteErr(status int, message string, errors ...error) {
+	WriteErr(ctx.Context, status, message, errors...)
+}
+
+// WriteResponse writes a successful response with optional content type
+func (ctx *FluxContext) WriteResponse(status int, body interface{}, contentType ...string) {
+	api := GetAPI(ctx.Context)
+
+	ctx.SetStatus(status)
+
+	var ct string
+	if len(contentType) > 0 && contentType[0] != "" {
+		ct = contentType[0]
+		ctx.SetHeader("Content-Type", ct)
+	} else {
+		// Content negotiation
+		var err error
+		ct, err = api.Negotiate(ctx.Header("Accept"))
+		if err != nil {
+			ctx.WriteErr(http.StatusNotAcceptable, "unable to marshal response", err)
+			return
+		}
+		ctx.SetHeader("Content-Type", ct)
+	}
+
+	// Handle byte slice special case
+	if b, ok := body.([]byte); ok {
+		ctx.BodyWriter().Write(b)
+		return
+	}
+
+	// Transform and marshal using Huma's pipeline
+	tval, terr := api.Transform(ctx.Context, strconv.Itoa(status), body)
+	if terr != nil {
+		ctx.WriteErr(http.StatusInternalServerError, "error transforming response", terr)
+		return
+	}
+
+	if err := api.Marshal(ctx.BodyWriter(), ct, tval); err != nil {
+		ctx.WriteErr(http.StatusInternalServerError, "error marshaling response", err)
+		return
+	}
+}
+
+// ============================================================================
+// RESPONSE WRITERS
+// ============================================================================
+
+// 2xx
+
+// OK writes a 200 OK response
+func (ctx *FluxContext) OK(body interface{}, contentType ...string) {
+	ctx.WriteResponse(http.StatusOK, body, contentType...)
+}
+
+// Created writes a 201 Created response
+func (ctx *FluxContext) Created(body interface{}, contentType ...string) {
+	ctx.WriteResponse(http.StatusCreated, body, contentType...)
+}
+
+// NoContent writes a 204 No Content response
+func (ctx *FluxContext) NoContent() {
+	ctx.SetStatus(http.StatusNoContent)
+}
+
+// 3xx
+
+// NotModified writes a 304 Not Modified response
+func (ctx *FluxContext) NotModified() {
+	ctx.SetStatus(http.StatusNotModified)
+}
+
+// For 4xx and 5xx, we can use error structs, that users can then pregenerate for common responses
+type StatusError struct {
+	Status  int
+	Message string
+}
+
+// NewStatusError creates a new StatusError with the given status, message, and errors
+func NewStatusError(status int, message string, errors ...error) *StatusError {
+	return &StatusError{
+		Status:  status,
+		Message: message,
+	}
+}
+
+func (ctx *FluxContext) WriteStatusError(statusError *StatusError, errors ...error) {
+	ctx.WriteErr(statusError.Status, statusError.Message, errors...)
+}
+
+// 4xx
+
+// NewBadRequestError writes a 400 Bad Request response
+func (ctx *FluxContext) NewBadRequestError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusBadRequest, message, errors...)
+}
+
+// NewUnauthorizedError writes a 401 Unauthorized response
+func (ctx *FluxContext) NewUnauthorizedError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusUnauthorized, message, errors...)
+}
+
+// NewForbiddenError writes a 403 Forbidden response
+func (ctx *FluxContext) NewForbiddenError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusForbidden, message, errors...)
+}
+
+// NewNotFoundError writes a 404 Not Found response
+func (ctx *FluxContext) NewNotFoundError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusNotFound, message, errors...)
+}
+
+// NewConflictError writes a 409 Conflict response
+func (ctx *FluxContext) NewConflictError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusConflict, message, errors...)
+}
+
+// 5xx
+
+// NewInternalServerError writes a 500 Internal Server Error response
+func (ctx *FluxContext) NewInternalServerError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusInternalServerError, message, errors...)
 }
