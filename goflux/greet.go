@@ -13,6 +13,7 @@ type GreetOptions struct {
 	Version     string
 	Host        string
 	Port        int
+	ProxyPort   int
 	DevMode     bool
 	DocsPath    string // Optional: path to API docs (e.g., "/api/docs")
 	OpenAPIPath string // Optional: path to OpenAPI spec (e.g., "/api/openapi")
@@ -44,22 +45,32 @@ func Greet(api huma.API, opts GreetOptions) {
 	}
 
 	// Server information
-	if opts.Host != "" && opts.Port > 0 {
+	if opts.DevMode {
+		fmt.Println("🛠️  Development mode enabled")
+		if opts.Host != "" && opts.ProxyPort > 0 {
+			if opts.ProxyPort > 0 {
+				fmt.Printf("🌐 Proxy running on \x1b[32mhttp://%s:%d\x1b[0m\n", opts.Host, opts.ProxyPort)
+				fmt.Printf("   (Direct access available on port %d)\n", opts.Port)
+			}
+
+			addr := fmt.Sprintf("%s:%d", opts.Host, opts.ProxyPort)
+			// API documentation links
+			if opts.DocsPath != "" {
+				fmt.Printf("📚 API docs: http://%s%s\n", addr, opts.DocsPath)
+			}
+			if opts.OpenAPIPath != "" {
+				fmt.Printf("📋 OpenAPI spec: http://%s%s.json\n", addr, opts.OpenAPIPath)
+			}
+		}
+	} else if opts.Host != "" && opts.Port > 0 {
 		addr := fmt.Sprintf("%s:%d", opts.Host, opts.Port)
 		fmt.Printf("🌐 Server running on http://%s\n", addr)
-
-		// API documentation links
 		if opts.DocsPath != "" {
 			fmt.Printf("📚 API docs: http://%s%s\n", addr, opts.DocsPath)
 		}
 		if opts.OpenAPIPath != "" {
 			fmt.Printf("📋 OpenAPI spec: http://%s%s.json\n", addr, opts.OpenAPIPath)
 		}
-	}
-
-	// Development mode indicator
-	if opts.DevMode {
-		fmt.Println("🛠️  Development mode enabled")
 	}
 
 	fmt.Println(strings.Repeat("═", 60))

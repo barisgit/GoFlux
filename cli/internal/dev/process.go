@@ -61,7 +61,10 @@ func (o *DevOrchestrator) startBackendProcess() error {
 		return fmt.Errorf("no main.go found in project root or cmd/server/")
 	}
 
-	cmd := exec.Command("go", "run", mainPath)
+	// Build command arguments - always add --dev flag in development mode
+	args := []string{"run", mainPath, "--dev"}
+
+	cmd := exec.Command("go", args...)
 	cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", o.backendPort))
 
 	// Use PTY for colored output
