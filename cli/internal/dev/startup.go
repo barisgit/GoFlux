@@ -31,6 +31,8 @@ func (o *DevOrchestrator) Start() error {
 
 	o.log(fmt.Sprintf("🚀 Starting GoFlux development environment for '%s'", o.config.Name), "\x1b[32m")
 
+	o.log("Logger legend: \x1b[35m[F]\x1b[0m Frontend, \x1b[34m[B]\x1b[0m Backend, \x1b[32m[O]\x1b[0m Orchestrator", "")
+
 	// Assign dynamic ports
 	o.frontendPort = o.findFreePort(o.config.Port + 1)
 	o.backendPort = o.findFreePort(o.frontendPort + 1)
@@ -91,18 +93,7 @@ func (o *DevOrchestrator) Start() error {
 	}
 	o.log(fmt.Sprintf("✅ Frontend dev server ready on port %d", o.frontendPort), "\x1b[32m")
 
-	// Start backend with our own process manager
-	if err := o.startBackendProcess(); err != nil {
-		return err
-	}
-
-	// Wait for backend to be ready
-	o.log("⏳ Waiting for backend server...", "\x1b[33m")
-	if !o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
-		return fmt.Errorf("backend server failed to start on port %d", o.backendPort)
-	}
-
-	// Setup file watcher for automatic type generation
+	// Setup file watcher for automatic type generation (before backend starts)
 	if err := o.setupFileWatcher(); err != nil {
 		o.log("⚠️  Warning: Could not setup file watcher", "\x1b[33m")
 		if o.debug {
@@ -120,7 +111,7 @@ func (o *DevOrchestrator) Start() error {
 		o.log("⚙️  Config hot reload enabled", "\x1b[36m")
 	}
 
-	// Fetch and save OpenAPI spec from running server
+	// Generate OpenAPI spec and types before starting backend
 	if err := o.fetchAndSaveOpenAPISpec(); err != nil {
 		o.log("⚠️  Warning: Could not fetch OpenAPI spec", "\x1b[33m")
 		if o.debug {
@@ -136,6 +127,30 @@ func (o *DevOrchestrator) Start() error {
 			}
 		}
 	}
+
+	// Start backend with our own process manager (after OpenAPI/type generation)
+	if err := o.startBackendProcess(); err != nil {
+		o.log("❌ Failed to start backend process", "\x1b[31m")
+		o.log(fmt.Sprintf("Error details: %v", err), "\x1b[31m")
+		o.log("💡 This usually indicates a compilation error or missing dependencies", "\x1b[33m")
+		o.log("🔧 Please check your Go code for syntax errors and ensure all imports are available", "\x1b[36m")
+		return err
+	}
+
+	// Wait for backend to be ready
+	o.log("⏳ Waiting for backend server...", "\x1b[33m")
+	if !o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
+		o.log("❌ Backend server failed to start - check error output above", "\x1b[31m")
+		o.log("💡 Common issues:", "\x1b[33m")
+		o.log("   • Compilation errors in Go code", "\x1b[33m")
+		o.log("   • Missing imports or dependencies", "\x1b[33m")
+		o.log("   • Runtime panics during server initialization", "\x1b[33m")
+		o.log("   • Port conflicts (check if something else is using the port)", "\x1b[33m")
+		return fmt.Errorf("backend server failed to start on port %d", o.backendPort)
+	}
+
+	// Stop capturing backend logs now that the server is ready
+	o.StopCapturingStartupLogs()
 
 	// Start proxy server
 	o.log("🔗 Starting development proxy...", "\x1b[36m")
@@ -156,6 +171,10 @@ func (o *DevOrchestrator) Start() error {
 	o.log("🔄 Automatic backend restart and type generation", "\x1b[36m")
 	o.log("⚙️  Configuration hot reload (flux.yaml)", "\x1b[36m")
 	o.log("", "")
+
+	// Now replay the captured backend startup logs
+	o.ReplayBackendStartupLogs()
+
 	o.log("Press Ctrl+C to stop all servers", "\x1b[33m")
 
 	// Wait for shutdown signal

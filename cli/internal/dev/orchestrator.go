@@ -22,19 +22,21 @@ type ProcessInfo struct {
 }
 
 type DevOrchestrator struct {
-	processes      []ProcessInfo
-	isShuttingDown bool
-	config         *config.ProjectConfig
-	debug          bool
-	proxyServer    *http.Server
-	shutdownChan   chan bool
-	fileWatcher    *fsnotify.Watcher
-	configWatcher  *fsnotify.Watcher
-	lastTypeGen    time.Time
-	typeGenMutex   sync.Mutex
-	backendProcess *exec.Cmd
-	backendMutex   sync.Mutex
-	configMutex    sync.RWMutex
+	processes          []ProcessInfo
+	isShuttingDown     bool
+	config             *config.ProjectConfig
+	debug              bool
+	proxyServer        *http.Server
+	shutdownChan       chan bool
+	fileWatcher        *fsnotify.Watcher
+	configWatcher      *fsnotify.Watcher
+	lastTypeGen        time.Time
+	typeGenMutex       sync.Mutex
+	backendProcess     *exec.Cmd
+	backendMutex       sync.Mutex
+	configMutex        sync.RWMutex
+	backendStartupLogs []string
+	captureBackendLogs bool
 	// Dynamic port assignments
 	frontendPort int
 	backendPort  int
@@ -48,9 +50,8 @@ func NewDevOrchestrator(cfg *config.ProjectConfig, debug bool) *DevOrchestrator 
 }
 
 func (o *DevOrchestrator) log(message, color string) {
-	timestamp := time.Now().Format("15:04:05")
 	if color == "" {
 		color = "\x1b[0m"
 	}
-	fmt.Printf("%s[%s] %s\x1b[0m\n", color, timestamp, message)
+	fmt.Printf("\x1b[32m[O]\x1b[0m %s%s\x1b[0m\n", color, message)
 }

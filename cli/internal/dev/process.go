@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
-	"github.com/barisgit/goflux/config"
 	"github.com/barisgit/goflux/cli/internal/typegen/analyzer"
 	"github.com/barisgit/goflux/cli/internal/typegen/generator"
+	"github.com/barisgit/goflux/config"
 
 	"github.com/creack/pty"
 )
@@ -72,17 +73,84 @@ func (o *DevOrchestrator) startBackendProcess() error {
 	o.backendProcess = cmd
 	o.log(fmt.Sprintf("✅ Backend started (PID: %d)", cmd.Process.Pid), "\x1b[34m")
 
-	// Handle PTY output
+	// Enable capture mode
+	o.captureBackendLogs = true
+	startupLogs := make([]string, 0)
+
+	// Monitor process exit in a separate goroutine
+	go func() {
+		err := cmd.Wait()
+		o.backendMutex.Lock()
+		defer o.backendMutex.Unlock()
+
+		if err != nil {
+			o.log("❌ Backend process exited with error", "\x1b[31m")
+
+			// If we have captured logs, display them immediately
+			if len(startupLogs) > 0 {
+				o.log("📋 Backend error output:", "\x1b[31m")
+				for _, line := range startupLogs {
+					o.formatLog("Backend", line, "\x1b[31m")
+				}
+			} else {
+				o.log("💭 No error output captured (process may have exited too quickly)", "\x1b[33m")
+			}
+
+			// Additional error details
+			if exitError, ok := err.(*exec.ExitError); ok {
+				o.log(fmt.Sprintf("💥 Exit code: %d", exitError.ExitCode()), "\x1b[31m")
+			}
+		}
+		o.backendProcess = nil
+	}()
+
+	// Handle PTY output with immediate error display
 	go func() {
 		defer ptmx.Close()
 		scanner := bufio.NewScanner(ptmx)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.TrimSpace(line) != "" {
-				o.formatLog("Backend", line, "\x1b[34m")
+				o.backendMutex.Lock()
+				if o.captureBackendLogs {
+					// Capture logs during startup
+					startupLogs = append(startupLogs, line)
+					o.backendStartupLogs = startupLogs
+
+					// If this looks like an error, display it immediately
+					lineLC := strings.ToLower(line)
+					if strings.Contains(lineLC, "error") ||
+						strings.Contains(lineLC, "panic") ||
+						strings.Contains(lineLC, "fatal") ||
+						strings.Contains(lineLC, "build failed") ||
+						strings.Contains(lineLC, "cannot") ||
+						strings.Contains(lineLC, "undefined") {
+						o.formatLog("Backend", line, "\x1b[31m")
+					} else if o.debug {
+						// In debug mode, show all output immediately
+						o.formatLog("Backend", line, "\x1b[34m")
+					}
+				} else {
+					// Normal logging after startup
+					o.formatLog("Backend", line, "\x1b[34m")
+				}
+				o.backendMutex.Unlock()
 			}
 		}
 	}()
+
+	// Give the process a moment to potentially fail fast
+	time.Sleep(100 * time.Millisecond)
+
+	// Check if process is still running after initial startup
+	if o.backendProcess == nil || o.backendProcess.Process == nil {
+		return fmt.Errorf("backend process exited immediately after startup")
+	}
+
+	// Check if process is still alive
+	if err := o.backendProcess.Process.Signal(syscall.Signal(0)); err != nil {
+		return fmt.Errorf("backend process is not running: %w", err)
+	}
 
 	return nil
 }
@@ -115,30 +183,16 @@ func (o *DevOrchestrator) fetchAndSaveOpenAPISpec() error {
 	outputPath := filepath.Join(buildDir, "openapi.json")
 	cmd := exec.Command("go", "run", mainPath, "openapi", "-o", outputPath)
 
-	// Capture output for debugging
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// Suppress output to avoid duplicate warnings and noise
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 
 	if err := cmd.Run(); err != nil {
 		o.log("⚠️  Warning: Could not generate OpenAPI spec directly", "\x1b[33m")
 		if o.debug {
 			o.log(fmt.Sprintf("OpenAPI generation error: %v", err), "\x1b[31m")
-			if stderr.String() != "" {
-				o.log(fmt.Sprintf("Stderr: %s", stderr.String()), "\x1b[31m")
-			}
 		}
 		return fmt.Errorf("failed to generate OpenAPI spec: %w", err)
-	}
-
-	// Log success and any output
-	if stdout.String() != "" {
-		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-		for _, line := range lines {
-			if strings.TrimSpace(line) != "" {
-				o.log(line, "\x1b[36m")
-			}
-		}
 	}
 
 	o.log(fmt.Sprintf("✅ OpenAPI spec saved to %s", outputPath), "\x1b[32m")
@@ -244,4 +298,22 @@ func (o *DevOrchestrator) findFreePort(startPort int) int {
 	}
 	// Fallback to a random high port if we can't find one in range
 	return startPort + 1000
+}
+
+// StopCapturingStartupLogs stops capturing and enables normal logging
+func (o *DevOrchestrator) StopCapturingStartupLogs() {
+	o.backendMutex.Lock()
+	defer o.backendMutex.Unlock()
+	o.captureBackendLogs = false
+}
+
+// ReplayBackendStartupLogs replays the captured startup logs
+func (o *DevOrchestrator) ReplayBackendStartupLogs() {
+	if len(o.backendStartupLogs) > 0 {
+		for _, line := range o.backendStartupLogs {
+			o.formatLog("Backend", line, "\x1b[34m")
+		}
+		// Clear the logs after replaying
+		o.backendStartupLogs = nil
+	}
 }

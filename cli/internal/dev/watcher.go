@@ -108,6 +108,8 @@ func (o *DevOrchestrator) handleFileEvents() {
 						// Restart backend directly
 						if err := o.restartBackend(); err != nil {
 							o.log(fmt.Sprintf("❌ Failed to restart backend: %v", err), "\x1b[31m")
+							o.log("💡 Check the error output above for compilation or runtime issues", "\x1b[33m")
+							o.log("🔧 Fix the errors and save the file again to retry", "\x1b[36m")
 							return
 						}
 
@@ -116,6 +118,10 @@ func (o *DevOrchestrator) handleFileEvents() {
 						if o.waitForPort(fmt.Sprintf("%d", o.backendPort), 15*time.Second) {
 							// Small delay to ensure server is fully initialized
 							time.Sleep(500 * time.Millisecond)
+
+							// Stop capturing backend logs and replay startup messages (including register warnings)
+							o.StopCapturingStartupLogs()
+							o.ReplayBackendStartupLogs()
 
 							// Fetch fresh OpenAPI spec
 							if err := o.fetchAndSaveOpenAPISpec(); err != nil {
@@ -137,7 +143,9 @@ func (o *DevOrchestrator) handleFileEvents() {
 								o.log("✅ Backend restarted and types regenerated!", "\x1b[32m")
 							}
 						} else {
-							o.log("⚠️  Backend not ready after restart, skipping type generation", "\x1b[33m")
+							o.log("⚠️  Backend not ready after restart - check for build errors or panics above", "\x1b[33m")
+							o.log("🔧 The backend process may have exited due to compilation errors", "\x1b[33m")
+							o.log("💡 Fix any errors shown and save the file again to retry", "\x1b[36m")
 						}
 					}(event.Name)
 				} else {

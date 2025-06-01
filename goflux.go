@@ -30,6 +30,13 @@ var (
 	CustomHealthCheck = goflux.CustomHealthCheck
 )
 
+// Greeting utilities - re-export from base package
+var (
+	Greet      = goflux.Greet
+	QuickGreet = goflux.QuickGreet
+)
+
 // Re-export types from base package
 type StaticConfig = goflux.StaticConfig
 type StaticResponse = goflux.StaticResponse
+type GreetOptions = goflux.GreetOptions
