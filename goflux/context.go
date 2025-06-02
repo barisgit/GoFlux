@@ -70,6 +70,18 @@ func (ctx *FluxContext) WriteResponse(status int, body interface{}, contentType 
 // RESPONSE WRITERS
 // ============================================================================
 
+// 1xx
+
+// Continue writes a 100 Continue response
+func (ctx *FluxContext) Continue() {
+	ctx.SetStatus(http.StatusContinue)
+}
+
+// SwitchingProtocols writes a 101 Switching Protocols response
+func (ctx *FluxContext) SwitchingProtocols() {
+	ctx.SetStatus(http.StatusSwitchingProtocols)
+}
+
 // 2xx
 
 // OK writes a 200 OK response
@@ -82,12 +94,29 @@ func (ctx *FluxContext) Created(body interface{}, contentType ...string) {
 	ctx.WriteResponse(http.StatusCreated, body, contentType...)
 }
 
+// Accepted writes a 202 Accepted response
+func (ctx *FluxContext) Accepted(body interface{}, contentType ...string) {
+	ctx.WriteResponse(http.StatusAccepted, body, contentType...)
+}
+
 // NoContent writes a 204 No Content response
 func (ctx *FluxContext) NoContent() {
 	ctx.SetStatus(http.StatusNoContent)
 }
 
 // 3xx
+
+// MovedPermanently writes a 301 Moved Permanently response
+func (ctx *FluxContext) MovedPermanently(location string) {
+	ctx.SetStatus(http.StatusMovedPermanently)
+	ctx.SetHeader("Location", location)
+}
+
+// Found writes a 302 Found response
+func (ctx *FluxContext) Found(location string) {
+	ctx.SetStatus(http.StatusFound)
+	ctx.SetHeader("Location", location)
+}
 
 // NotModified writes a 304 Not Modified response
 func (ctx *FluxContext) NotModified() {
@@ -124,6 +153,11 @@ func (ctx *FluxContext) NewUnauthorizedError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusUnauthorized, message, errors...)
 }
 
+// NewPaymentRequiredError writes a 402 Payment Required response
+func (ctx *FluxContext) NewPaymentRequiredError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusPaymentRequired, message, errors...)
+}
+
 // NewForbiddenError writes a 403 Forbidden response
 func (ctx *FluxContext) NewForbiddenError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusForbidden, message, errors...)
@@ -134,9 +168,19 @@ func (ctx *FluxContext) NewNotFoundError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusNotFound, message, errors...)
 }
 
+// NewMethodNotAllowedError writes a 405 Method Not Allowed response
+func (ctx *FluxContext) NewMethodNotAllowedError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusMethodNotAllowed, message, errors...)
+}
+
 // NewConflictError writes a 409 Conflict response
 func (ctx *FluxContext) NewConflictError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusConflict, message, errors...)
+}
+
+// NewTooManyRequestsError writes a 429 Too Many Requests response
+func (ctx *FluxContext) NewTooManyRequestsError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusTooManyRequests, message, errors...)
 }
 
 // 5xx
@@ -144,4 +188,19 @@ func (ctx *FluxContext) NewConflictError(message string, errors ...error) {
 // NewInternalServerError writes a 500 Internal Server Error response
 func (ctx *FluxContext) NewInternalServerError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusInternalServerError, message, errors...)
+}
+
+// NewNotImplementedError writes a 501 Not Implemented response
+func (ctx *FluxContext) NewNotImplementedError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusNotImplemented, message, errors...)
+}
+
+// NewBadGatewayError writes a 502 Bad Gateway response
+func (ctx *FluxContext) NewBadGatewayError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusBadGateway, message, errors...)
+}
+
+// NewServiceUnavailableError writes a 503 Service Unavailable response
+func (ctx *FluxContext) NewServiceUnavailableError(message string, errors ...error) {
+	ctx.WriteErr(http.StatusServiceUnavailable, message, errors...)
 }
