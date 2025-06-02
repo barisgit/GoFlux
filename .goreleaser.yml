@@ -94,9 +94,8 @@ release:
     Download the appropriate binary for your platform from the assets below.
 
 # Homebrew tap
-homebrew_casks:
+brews:
   - name: flux
-    binary: flux
     repository:
       owner: barisgit
       name: homebrew-goflux
@@ -105,13 +104,14 @@ homebrew_casks:
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
-    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: https://github.com/barisgit/goflux
     description: "🚀 The fastest way to build full-stack applications with Go + TypeScript"
     license: MIT
-    custom_block: |
-      head "https://github.com/barisgit/goflux.git"
-    caveats: "Run 'flux --help' to see available commands"
+    install: |
+      bin.install "flux"
+    test: |
+      system "#{bin}/flux", "--version"
 
 # Chocolatey package for Windows (commented out for cross-platform development)
 # chocolateys:
