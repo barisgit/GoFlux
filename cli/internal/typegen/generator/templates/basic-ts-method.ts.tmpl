@@ -2,9 +2,9 @@
  * {{.Description}}
  */{{end}}
 async ({{.ParameterSignature}}): Promise<ApiResult<{{.ResponseType}}>> => {
-{{if .HasQueryParams}}  const queryString = params ? buildQueryString(params) : '';
-{{end}}{{if .HasBodyData}}  return request<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`, {
+{{if .HasQueryParams}}const queryString = params ? buildQueryString(params) : '';
+{{end}}{{if .HasBodyData}}  return request<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, {
     method: '{{.Method}}',
-    body: JSON.stringify({{.DataParameter}}),
-  }){{else}}{{if eq .Method "GET"}}  return request<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`){{else}}  return request<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`, { method: '{{.Method}}' }){{end}}{{end}}
+    body: JSON.stringify(data),
+  }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{else}}{{if eq .Method "GET"}}  return request<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`{{if .RequiresAuth}}, {}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{else}}  return request<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, { method: '{{.Method}}' }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{end}}{{end}}
 } 

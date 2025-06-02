@@ -10,15 +10,18 @@ type QueryParameter struct {
 	Enum        []string    `json:"enum,omitempty"`
 }
 
-// APIRoute represents a discovered API route
+// APIRoute represents a single API endpoint
 type APIRoute struct {
-	Method          string           `json:"method"`
-	Path            string           `json:"path"`
-	Handler         string           `json:"handler"`
-	RequestType     string           `json:"requestType"`
-	ResponseType    string           `json:"responseType"`
-	Description     string           `json:"description"`
-	QueryParameters []QueryParameter `json:"queryParameters,omitempty"`
+	Method          string                `json:"method"`
+	Path            string                `json:"path"`
+	Handler         string                `json:"handler"`
+	RequestType     string                `json:"request_type,omitempty"`
+	ResponseType    string                `json:"response_type,omitempty"`
+	Description     string                `json:"description,omitempty"`
+	QueryParameters []QueryParameter      `json:"query_parameters,omitempty"`
+	RequiresAuth    bool                  `json:"requires_auth"`
+	AuthType        string                `json:"auth_type,omitempty"` // "Bearer", "Basic", "ApiKey", etc.
+	SecuritySchemes []map[string][]string `json:"security_schemes,omitempty"`
 }
 
 // TypeDefinition represents a Go struct converted to TypeScript

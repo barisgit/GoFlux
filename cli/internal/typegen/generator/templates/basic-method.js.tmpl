@@ -44,8 +44,8 @@
  */{{end}}
 async ({{.ParameterSignatureJS}}) => {
 {{if .HasQueryParams}}  const queryString = params ? buildQueryString(params) : '';
-{{end}}{{if .HasBodyData}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`, {
+{{end}}{{if .HasBodyData}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, {
     method: '{{.Method}}',
-    body: JSON.stringify({{.DataParameter}}),
-  }){{else}}{{if eq .Method "GET"}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`){{else}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`, { method: '{{.Method}}' }){{end}}{{end}}
+    body: JSON.stringify(data),
+  }){{else}}{{if eq .Method "GET"}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`){{else}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, { method: '{{.Method}}' }){{end}}{{end}}
 } 

@@ -4,17 +4,23 @@
 {
 {{if .ReactQueryEnabled}}  useQuery: ({{.QueryParameterSignature}}options?: Omit<UseQueryOptions<{{.ResponseType}}, Error>, 'queryKey' | 'queryFn'>) => {
     return useQuery({
-      queryKey: ['{{.QueryKey}}'{{if .HasIDParam}}, id{{end}}{{if .HasQueryParams}}, params{{end}}],
-      queryFn: () => trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${params ? buildQueryString(params) : ''}{{end}}`),
+      queryKey: ['{{.QueryKey}}'{{if .HasQueryParams}}, params{{end}}],
+      queryFn: async () => {
+{{if .HasQueryParams}}        const queryString = params ? buildQueryString(params) : '';
+{{end}}        return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`{{if .RequiresAuth}}, {}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}})
+      },
       ...options,
     })
   },
-  queryOptions: ({{.QueryOptionsParameterSignature}}) => queryOptions({
-    queryKey: ['{{.QueryKey}}'{{if .HasIDParam}}, id{{end}}{{if .HasQueryParams}}, params{{end}}] as const,
-    queryFn: () => trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${params ? buildQueryString(params) : ''}{{end}}`),
+  queryOptions: ({{.QueryOptionsParameterSignature}}) => ({
+    queryKey: ['{{.QueryKey}}'{{if .HasQueryParams}}, params{{end}}] as const,
+    queryFn: async () => {
+{{if .HasQueryParams}}      const queryString = params ? buildQueryString(params) : '';
+{{end}}      return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`{{if .RequiresAuth}}, {}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}})
+    },
   }),
   query: {{end}}async ({{.ParameterSignature}}): Promise<{{.ResponseType}}> => {
-{{if .HasQueryParams}}    const queryString = params ? buildQueryString(params) : '';
-{{end}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`)
+{{if .HasQueryParams}}const queryString = params ? buildQueryString(params) : '';
+{{end}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`{{if .RequiresAuth}}, {}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}})
   }{{if .ReactQueryEnabled}}{{end}}
 } 

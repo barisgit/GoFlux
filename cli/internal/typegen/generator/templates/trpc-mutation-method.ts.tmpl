@@ -6,10 +6,10 @@
     return useMutation({
       mutationFn: (variables) => {
 {{if .HasQueryParams}}        const queryString = variables.params ? buildQueryString(variables.params) : '';
-{{end}}{{if .HasBodyData}}        return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}$${queryString}{{end}}`, {
+{{end}}{{if .HasBodyData}}        return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}${queryString}{{end}}`, {
           method: '{{.Method}}',
 {{if and .HasBodyData .HasIDParam}}          body: JSON.stringify(variables.data),{{else}}          body: JSON.stringify(variables),{{end}}
-        }){{else}}        return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}$${queryString}{{end}}`, { method: '{{.Method}}' }){{end}}
+        }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{else}}        return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}${queryString}{{end}}`, { method: '{{.Method}}' }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{end}}
       },
       ...options,
     })
@@ -17,18 +17,18 @@
   mutationOptions: (options?: Omit<UseMutationOptions<{{.ResponseType}}, Error, {{.MutationVariableType}}>, 'mutationFn'>) => ({
     mutationFn: (variables: {{.MutationVariableType}}) => {
 {{if .HasQueryParams}}      const queryString = variables.params ? buildQueryString(variables.params) : '';
-{{end}}{{if .HasBodyData}}      return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}$${queryString}{{end}}`, {
+{{end}}{{if .HasBodyData}}      return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}${queryString}{{end}}`, {
         method: '{{.Method}}',
 {{if and .HasBodyData .HasIDParam}}        body: JSON.stringify(variables.data),{{else}}        body: JSON.stringify(variables),{{end}}
-      }){{else}}      return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}$${queryString}{{end}}`, { method: '{{.Method}}' }){{end}}
+      }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{else}}      return trpcRequest<{{.ResponseType}}>(`{{.RequestPathForMutation}}{{if .HasQueryParams}}${queryString}{{end}}`, { method: '{{.Method}}' }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{end}}
     },
     ...options,
   }),
   mutate: {{end}}async ({{.ParameterSignature}}): Promise<{{.ResponseType}}> => {
 {{if .HasQueryParams}}    const queryString = params ? buildQueryString(params) : '';
-{{end}}{{if .HasBodyData}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`, {
+{{end}}{{if .HasBodyData}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, {
       method: '{{.Method}}',
       body: JSON.stringify({{.DataParameter}}),
-    }){{else}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}$${queryString}{{end}}`, { method: '{{.Method}}' }){{end}}
+    }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{else}}    return trpcRequest<{{.ResponseType}}>(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, { method: '{{.Method}}' }{{if .RequiresAuth}}, {{.RequiresAuth}}, '{{.AuthType}}'{{end}}){{end}}
   }{{if .ReactQueryEnabled}}{{end}}
 } 

@@ -317,13 +317,12 @@ func (pm *ProcessManager) findFreePort(startPort int) int {
 func (o *DevOrchestrator) generateTypes() error {
 	o.log("🔧 Generating API types...", "\x1b[36m")
 
-	// First, generate the OpenAPI spec if it doesn't exist
-	if err := o.ensureOpenAPISpec(); err != nil {
+	// Always generate a new OpenAPI spec
+	if err := o.generateOpenAPIDirectly(); err != nil {
 		o.log("⚠️  Warning: Could not generate OpenAPI spec", "\x1b[33m")
 		if o.debug {
 			o.log(fmt.Sprintf("OpenAPI generation error: %v", err), "\x1b[31m")
 		}
-		return fmt.Errorf("OpenAPI spec generation failed: %w", err)
 	}
 
 	// Load configuration using enhanced system with fallback to defaults
@@ -412,33 +411,6 @@ func (o *DevOrchestrator) generateTypes() error {
 	}
 
 	return nil
-}
-
-// ensureOpenAPISpec generates the OpenAPI spec if it doesn't exist
-func (o *DevOrchestrator) ensureOpenAPISpec() error {
-	// Check if OpenAPI spec already exists in common locations
-	possiblePaths := []string{
-		"build/openapi.json",
-		"openapi.json",
-		"docs/openapi.json",
-		"api/openapi.json",
-	}
-
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			if o.debug {
-				o.log("✅ Found existing OpenAPI spec at "+path, "\x1b[32m")
-			}
-			return nil
-		}
-	}
-
-	// No existing spec found, try to generate one directly
-	if o.debug {
-		o.log("📋 No OpenAPI spec found, generating...", "\x1b[36m")
-	}
-
-	return o.generateOpenAPIDirectly()
 }
 
 // generateOpenAPIDirectly generates the OpenAPI spec using the built-in command

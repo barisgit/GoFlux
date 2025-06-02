@@ -41,7 +41,7 @@ func FormatMissingDependenciesError(operation, file string, line int, details Mi
 	if len(details.AvailableDeps) > 0 {
 		fmt.Printf("\x1b[33m   Available dependencies:\x1b[0m\n")
 		for depType, dep := range details.AvailableDeps {
-			fmt.Printf("\x1b[38;5;118m   - '\x1b[38;5;226m%s\x1b[38;5;118m' (type: \x1b[38;5;201m%v\x1b[38;5;118m)\x1b[0m\n", dep.Name, depType)
+			fmt.Printf("\x1b[38;5;118m   - '\x1b[38;5;226m%s\x1b[38;5;118m' (type: \x1b[38;5;201m%v\x1b[38;5;118m)\x1b[0m\n", dep.Name(), depType)
 		}
 	} else {
 		fmt.Printf("\x1b[33m   No dependencies are currently registered for this procedure.\x1b[0m\n")
@@ -60,8 +60,8 @@ func FormatDuplicateDependenciesError(operation, file string, line int, details 
 	fmt.Printf("\x1b[38;5;45m   Location: \x1b[38;5;255m%s:%d\x1b[0m\n", file, line)
 
 	fmt.Printf("\x1b[31m   Conflicting dependencies:\x1b[0m\n")
-	fmt.Printf("\x1b[38;5;203m   - '\x1b[38;5;226m%s\x1b[38;5;203m' (type: \x1b[38;5;201m%v\x1b[38;5;203m)\x1b[0m\n", details.ExistingDep.Name, details.ConflictingType)
-	fmt.Printf("\x1b[38;5;203m   - '\x1b[38;5;226m%s\x1b[38;5;203m' (type: \x1b[38;5;201m%v\x1b[38;5;203m)\x1b[0m\n", details.NewDep.Name, details.ConflictingType)
+	fmt.Printf("\x1b[38;5;203m   - '\x1b[38;5;226m%s\x1b[38;5;203m' (type: \x1b[38;5;201m%v\x1b[38;5;203m)\x1b[0m\n", details.ExistingDep.Name(), details.ConflictingType)
+	fmt.Printf("\x1b[38;5;203m   - '\x1b[38;5;226m%s\x1b[38;5;203m' (type: \x1b[38;5;201m%v\x1b[38;5;203m)\x1b[0m\n", details.NewDep.Name(), details.ConflictingType)
 
 	fmt.Printf("\x1b[38;5;118m   Solutions:\x1b[0m\n")
 	fmt.Printf("\x1b[38;5;118m   • Create wrapper types to disambiguate (e.g., AdminUser, RegularUser)\x1b[0m\n")
@@ -78,7 +78,7 @@ func FormatUnusedDependenciesWarning(operation, file string, line int, unusedDep
 
 	for _, dep := range unusedDeps {
 		fmt.Printf("\x1b[38;5;203m   - '\x1b[38;5;226m%s\x1b[38;5;203m' (type: \x1b[38;5;201m%v\x1b[38;5;203m) - consider removing from procedure or use it as a dependency\x1b[0m\n",
-			dep.Name, dep.Type())
+			dep.Name(), dep.Type())
 	}
 	fmt.Printf("\x1b[38;5;118m   Tip: Remove unused dependencies to improve performance or use them as dependencies\x1b[0m\n")
 	fmt.Println() // Add spacing after warnings

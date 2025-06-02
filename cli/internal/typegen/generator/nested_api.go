@@ -349,6 +349,8 @@ func createMethodTemplateData(method types.APIMethod, generatorType string, reac
 		QueryKey:                       strings.TrimPrefix(route.Path, "/api/"),
 		MutationVariableType:           mutationVariableType,
 		ReactQueryEnabled:              reactQueryEnabled,
+		RequiresAuth:                   route.RequiresAuth,
+		AuthType:                       route.AuthType,
 	}
 }
 

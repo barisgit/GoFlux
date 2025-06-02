@@ -36,7 +36,33 @@ var (
 	QuickGreet = goflux.QuickGreet
 )
 
+// File upload utilities - re-export from base package
+var (
+	NewFile               = goflux.NewFile
+	NewFileList           = goflux.NewFileList
+	NewFileUploadResponse = goflux.NewFileUploadResponse
+	GetFileFromForm       = goflux.GetFileFromForm
+	GetFormValue          = goflux.GetFormValue
+)
+
+// File upload errors - re-export from base package
+var (
+	ErrNoFileUploaded     = goflux.ErrNoFileUploaded
+	ErrFileTooLarge       = goflux.ErrFileTooLarge
+	ErrInvalidFileType    = goflux.ErrInvalidFileType
+	ErrTooManyFiles       = goflux.ErrTooManyFiles
+	ErrInvalidFileContent = goflux.ErrInvalidFileContent
+	NewFileUploadError    = goflux.NewFileUploadError
+)
+
 // Re-export types from base package
 type StaticConfig = goflux.StaticConfig
 type StaticResponse = goflux.StaticResponse
 type GreetOptions = goflux.GreetOptions
+
+// File upload types - re-export from base package
+type File = goflux.File
+type FileList = goflux.FileList
+type FileUploadResponseBody = goflux.FileUploadResponseBody
+type FileInfo = goflux.FileInfo
+type FileUploadError = goflux.FileUploadError
