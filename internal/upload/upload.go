@@ -1,4 +1,4 @@
-package goflux
+package upload
 
 import (
 	"fmt"
@@ -7,11 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/danielgtaylor/huma/v2"
 )
 
-// File represents an uploaded file with metadata and content access
+// File represents an uploaded file with metadata
 type File struct {
 	// Filename is the original name of the uploaded file
 	Filename string `json:"filename" doc:"Original filename"`
@@ -26,10 +24,10 @@ type File struct {
 	Content io.ReadCloser `json:"-"`
 }
 
-// FileList represents a list of uploaded files
+// FileList represents a collection of uploaded files
 type FileList []*File
 
-// NewFile creates a File instance from a multipart.FileHeader
+// NewFile creates a new File from a multipart file header
 func NewFile(fh *multipart.FileHeader) (*File, error) {
 	file, err := fh.Open()
 	if err != nil {
@@ -44,45 +42,48 @@ func NewFile(fh *multipart.FileHeader) (*File, error) {
 	}, nil
 }
 
-// NewFileList creates a FileList from multiple multipart.FileHeader instances
+// NewFileList creates a new FileList from a slice of multipart file headers
 func NewFileList(fhs []*multipart.FileHeader) (FileList, error) {
-	files := make(FileList, 0, len(fhs))
-	for _, fh := range fhs {
+	files := make(FileList, len(fhs))
+	for i, fh := range fhs {
 		file, err := NewFile(fh)
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, file)
+		files[i] = file
 	}
 	return files, nil
 }
 
-// ReadAll reads all content from the file and returns it as bytes
+// ReadAll reads all data from the file
 func (f *File) ReadAll() ([]byte, error) {
-	if f.Content == nil {
-		return nil, fmt.Errorf("file content is not available")
-	}
 	return io.ReadAll(f.Content)
 }
 
-// Extension returns the file extension (e.g., ".jpg", ".pdf")
+// Extension returns the file extension
 func (f *File) Extension() string {
-	return strings.ToLower(filepath.Ext(f.Filename))
+	return filepath.Ext(f.Filename)
 }
 
-// IsImage returns true if the file appears to be an image
+// IsImage checks if the file is an image based on content type
 func (f *File) IsImage() bool {
 	return strings.HasPrefix(f.ContentType, "image/")
 }
 
-// IsDocument returns true if the file appears to be a document
+// IsDocument checks if the file is a document
 func (f *File) IsDocument() bool {
-	contentType := strings.ToLower(f.ContentType)
-	return strings.Contains(contentType, "pdf") ||
-		strings.Contains(contentType, "document") ||
-		strings.Contains(contentType, "text") ||
-		strings.Contains(contentType, "msword") ||
-		strings.Contains(contentType, "officedocument")
+	docTypes := []string{
+		"application/pdf",
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"text/plain",
+	}
+	for _, docType := range docTypes {
+		if f.ContentType == docType {
+			return true
+		}
+	}
+	return false
 }
 
 // Close closes the file content reader
@@ -261,30 +262,4 @@ func GetFormValue(form *multipart.Form, fieldName string) string {
 		return ""
 	}
 	return values[0]
-}
-
-func (p *Procedure) RegisterMultipartUpload(api huma.API, path string, handler interface{}, options ...func(*huma.Operation)) {
-	// Now that our parsing system supports MultipartFormFiles, just use regular Post
-	p.Post(api, path, handler, func(o *huma.Operation) {
-		// Force multipart content type
-		if o.RequestBody == nil {
-			o.RequestBody = &huma.RequestBody{}
-		}
-		if o.RequestBody.Content == nil {
-			o.RequestBody.Content = map[string]*huma.MediaType{}
-		}
-		if _, exists := o.RequestBody.Content["multipart/form-data"]; !exists {
-			o.RequestBody.Content["multipart/form-data"] = &huma.MediaType{}
-		}
-
-		// Apply user options
-		for _, opt := range options {
-			opt(o)
-		}
-	})
-}
-
-// RegisterMultipartUpload creates a simple multipart file upload endpoint with minimal boilerplate
-func RegisterMultipartUpload(api huma.API, path string, handler interface{}, options ...func(*huma.Operation)) {
-	NewProcedure().RegisterMultipartUpload(api, path, handler, options...)
 }

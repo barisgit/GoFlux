@@ -1,4 +1,4 @@
-package goflux
+package static
 
 import (
 	"embed"

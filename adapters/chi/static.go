@@ -4,7 +4,7 @@ import (
 	"embed"
 	"net/http"
 
-	"github.com/barisgit/goflux/goflux"
+	"github.com/barisgit/goflux"
 )
 
 // StaticHandler creates a Chi handler using the shared static logic

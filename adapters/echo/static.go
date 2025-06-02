@@ -3,7 +3,7 @@ package echo
 import (
 	"embed"
 
-	"github.com/barisgit/goflux/goflux"
+	"github.com/barisgit/goflux"
 	"github.com/labstack/echo/v4"
 )
 
