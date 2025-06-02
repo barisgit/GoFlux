@@ -53,14 +53,14 @@ function PostsPage() {
     createPostMutation.mutate({
       title: newPost.title,
       content: newPost.content,
-      user_id: newPost.author_id,
+      userId: newPost.author_id,
       published: false,
     });
   };
 
   const getUserName = (authorId: number) => {
     if (!usersQuery.data) return "Unknown";
-    const user = usersQuery.data.find((u: User) => u.id === authorId);
+    const user = usersQuery.data.users.find((u: User) => u.id === authorId);
     return user ? user.name : "Unknown";
   };
 
@@ -155,7 +155,7 @@ function PostsPage() {
                   }
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {usersQuery.data?.map((user: User) => (
+                  {usersQuery.data?.users.map((user: User) => (
                     <option key={user.id} value={user.id}>
                       {user.name} ({user.email})
                     </option>
@@ -185,21 +185,21 @@ function PostsPage() {
       )}
 
       {/* Posts Grid */}
-      {postsQuery.data && postsQuery.data.length > 0 ? (
+      {postsQuery.data && postsQuery.data.posts.length > 0 ? (
         <div className="grid gap-6">
-          {postsQuery.data.map((post: Post) => (
+          {postsQuery.data.posts.map((post: Post) => (
             <Card key={post.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <CardTitle className="text-xl mb-2">{post.title}</CardTitle>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>By {getUserName(post.user_id)}</span>
+                      <span>By {getUserName(post.userId)}</span>
                       <Badge variant={post.published ? "success" : "warning"}>
                         {post.published ? "Published" : "Draft"}
                       </Badge>
-                      {post.created_at && (
-                        <span>{formatRelativeTime(post.created_at)}</span>
+                      {post.createdAt && (
+                        <span>{formatRelativeTime(post.createdAt)}</span>
                       )}
                     </div>
                   </div>

@@ -27,7 +27,7 @@ function HomePage() {
 
   const getUserName = (authorId: number) => {
     if (!usersQuery.data) return "Unknown";
-    const user = usersQuery.data.find((u) => u.id === authorId);
+    const user = usersQuery.data.users.find((u) => u.id === authorId);
     return user ? user.name : "Unknown";
   };
 
@@ -103,7 +103,7 @@ function HomePage() {
               <div>
                 <p className="text-brand-700 text-sm font-medium">API Posts</p>
                 <p className="text-3xl font-bold text-brand-900">
-                  {postsQuery.data?.length || 0}
+                  {postsQuery.data?.posts?.length || 0}
                 </p>
               </div>
               <div className="w-12 h-12 bg-brand-500 rounded-lg flex items-center justify-center">
@@ -133,7 +133,7 @@ function HomePage() {
                   API Users
                 </p>
                 <p className="text-3xl font-bold text-success-900">
-                  {usersQuery.data?.length || 0}
+                  {usersQuery.data?.users?.length || 0}
                 </p>
               </div>
               <div className="w-12 h-12 bg-success-500 rounded-lg flex items-center justify-center">
@@ -223,14 +223,14 @@ function HomePage() {
               </CardDescription>
             </div>
             <Badge variant="secondary">
-              {postsQuery.data?.length || 0} posts
+              {postsQuery.data?.posts?.length || 0} posts
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
-          {postsQuery.data && postsQuery.data.length > 0 ? (
+          {postsQuery.data && postsQuery.data.posts.length > 0 ? (
             <div className="space-y-6">
-              {postsQuery.data.slice(0, 3).map((post) => (
+              {postsQuery.data.posts.slice(0, 3).map((post) => (
                 <div
                   key={post.id}
                   className="border-l-4 border-l-brand-500 pl-4"
@@ -247,15 +247,15 @@ function HomePage() {
                         <span className="text-muted-foreground">
                           By{" "}
                           <span className="font-medium">
-                            {getUserName(post.user_id)}
+                            {getUserName(post.userId)}
                           </span>
                         </span>
                         <Badge variant={post.published ? "success" : "warning"}>
                           {post.published ? "Published" : "Draft"}
                         </Badge>
-                        {post.created_at && (
+                        {post.createdAt && (
                           <span className="text-muted-foreground">
-                            {formatRelativeTime(post.created_at)}
+                            {formatRelativeTime(post.createdAt)}
                           </span>
                         )}
                       </div>

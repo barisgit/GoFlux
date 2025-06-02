@@ -64,8 +64,8 @@ import (
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 
 	// Import GoFlux framework
-	goflux "github.com/barisgit/goflux"
-	"github.com/barisgit/goflux/goflux"
+	"github.com/barisgit/goflux"
+	"github.com/barisgit/goflux/config"
 )
 
 // Options for the CLI - allows configuration via flags or environment variables
@@ -83,6 +83,12 @@ func main() {
 
 	// Check for PORT environment variable (used by Air/development)
 	envPort := os.Getenv("PORT")
+
+	// Load project configuration
+	projectConfig, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load project config: %v", err)
+	}
 
 	// Create a CLI app with port and host options
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
@@ -222,10 +228,19 @@ func main() {
 		{{end}}
 
 		// Create Huma API with OpenAPI configuration
-		config := huma.DefaultConfig("advanced API", "1.0.0")
+		config := huma.DefaultConfig("{{.ProjectName}} API", "1.0.0")
 		config.Info.Description = "A modern REST API built with GoFlux and Huma"
 		config.Servers = []*huma.Server{
 			{URL: fmt.Sprintf("http://%s:%d", options.Host, options.Port)},
+		}
+
+		config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+			"Bearer": {
+				Type:         "http",
+				Scheme:       "bearer",
+				BearerFormat: "JWT",
+				Description:  "Bearer token for authentication",
+			},
 		}
 
 		// Configure documentation and OpenAPI paths to be under /api/
@@ -249,7 +264,7 @@ func main() {
 		{{end}}
 
 		// Register health check endpoint using GoFlux utility
-		goflux.AddHealthCheck(humaAPI, "/api/health", "advanced", "1.0.0")
+		goflux.AddHealthCheck(humaAPI, "/api/health", "{{.ProjectName}}", "1.0.0")
 
 		// Initialize database
 		database, err := db.NewDatabase()
@@ -291,9 +306,17 @@ func main() {
 		// Tell the CLI how to start your server
 		hooks.OnStart(func() {
 			addr := fmt.Sprintf("%s:%d", options.Host, options.Port)
-			fmt.Printf("🚀 advanced server starting on http://%s\n", addr)
-			fmt.Printf("📚 API documentation available at http://%s/api/docs\n", addr)
-			fmt.Printf("📋 OpenAPI spec available at http://%s/api/openapi.json\n", addr)
+			
+			goflux.Greet(humaAPI, goflux.GreetOptions{
+				ServiceName: "{{.ProjectName}}",
+				Version:     "1.0.0",
+				Host:        options.Host,
+				Port:        options.Port,
+				ProxyPort:   projectConfig.Port,
+				DevMode:     options.Dev,
+				DocsPath:    config.DocsPath,
+				OpenAPIPath: config.OpenAPIPath,
+			})
 
 			{{if eq .Router "fiber"}}
 			if err := app.Listen(addr); err != nil {
@@ -322,7 +345,7 @@ func main() {
 		// Handle cleanup when the application shuts down
 		hooks.OnStop(func() {
 			fmt.Println("🛑 Shutting down server...")
-			datagoflux.Close()
+			database.Close()
 		})
 	})
 
@@ -336,7 +359,7 @@ func main() {
 
 		// This is a simplified version for CLI-only usage
 		// The full API setup happens when the server runs
-		config := huma.DefaultConfig("advanced API", "1.0.0")
+		config := huma.DefaultConfig("{{.ProjectName}} API", "1.0.0")
 		config.Info.Description = "A modern REST API built with GoFlux and Huma"
 
 		{{if eq .Router "chi"}}

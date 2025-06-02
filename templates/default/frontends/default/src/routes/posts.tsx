@@ -36,13 +36,13 @@ function PostsPage() {
       if (!postsResult.success) {
         setError(postsResult.error.detail);
       } else {
-        setPosts(postsResult.data || []);
+        setPosts(postsResult.data.posts || []);
       }
 
       if (!usersResult.success) {
         setError(usersResult.error.detail);
       } else {
-        setUsers(usersResult.data || []);
+        setUsers(usersResult.data.users || []);
       }
     } catch (err) {
       setError("Failed to load data");

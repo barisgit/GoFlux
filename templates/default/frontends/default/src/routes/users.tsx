@@ -24,7 +24,7 @@ function UsersPage() {
     if (!result.success) {
       setError(result.error.detail);
     } else {
-      setUsers(result.data || []);
+      setUsers(result.data.users || []);
     }
     setLoading(false);
   };

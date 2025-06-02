@@ -108,6 +108,17 @@ GoFlux utilities follow these principles:
 4. **Framework Agnostic** - Works with any Huma-compatible router (Chi, Gin, Echo, etc.)
 5. **Embedded-First** - Designed for single-binary deployment with embedded assets
 
+## Future Exploration
+
+We're exploring ideas for enhanced deployment and process management capabilities:
+
+- **Process Management** - Potential `flux serve` command with zero-downtime deployments
+- **Enhanced DI** - Improved dependency injection with lifecycle hooks  
+- **App Builder** - `goflux.NewApp()` for simplified setup
+- **Configuration** - Type-safe config loading with validation
+
+These are early-stage concepts and not yet implemented.
+
 ## Local Development
 
 To use these packages locally in your projects before publishing:

@@ -45,6 +45,9 @@ func GenerateTypeScriptTypes(typeDefs []types.TypeDefinition) error {
 				fieldName := field.JSONTag
 				if fieldName == "" {
 					fieldName = proc.ProcessFieldName(field.Name)
+				} else {
+					// Process the JSON tag through the field name converter for consistency
+					fieldName = proc.ProcessFieldName(fieldName)
 				}
 
 				optional := ""

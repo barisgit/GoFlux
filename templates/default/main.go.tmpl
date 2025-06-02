@@ -16,7 +16,6 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	chilogger "github.com/go-chi/chi/v5/middleware"
 	// GoFlux Chi adapter
 	gofluxchi "github.com/barisgit/goflux/adapters/chi"
 	{{else if eq .Router "fiber"}}
@@ -60,8 +59,8 @@ import (
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 	
 	// Import GoFlux framework
-	goflux "github.com/barisgit/goflux"
-	"github.com/barisgit/goflux/goflux"
+	"github.com/barisgit/goflux"
+	"github.com/barisgit/goflux/config"
 )
 
 // Options for the CLI - allows configuration via flags or environment variables
@@ -73,23 +72,29 @@ type Options struct {
 
 func main() {
 	// Check for PORT environment variable (used by Air/development)
-	envPort := os.Getenv("PORT")
+	envPort, err := strconv.Atoi(os.Getenv("PORT"))
+	if err != nil {
+		envPort = 3000
+	}
+
+	// Load project configuration
+	projectConfig, err := config.LoadConfig()
+	if err != nil {
+		panic(err)
+	}
 	
 	// Create a CLI app with port and host options
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
 		// Use environment port if provided
-		if envPort != "" {
-			if p, err := strconv.Atoi(envPort); err == nil {
-				options.Port = p
-			}
-		}
+		options.Port = envPort
+		
 		// Create router based on configuration
 		{{if eq .Router "chi"}}
 		// Create a new Chi router
 		router := chi.NewRouter()
 
 		// Add middleware
-		router.Use(chilogger.Logger)
+		router.Use(middleware.Logger)
 		router.Use(middleware.Recoverer)
 		router.Use(middleware.RequestID)
 		router.Use(middleware.RealIP)
@@ -218,6 +223,15 @@ func main() {
 		config.Servers = []*huma.Server{
 			{URL: fmt.Sprintf("http://%s:%d", options.Host, options.Port)},
 		}
+
+		config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+			"Bearer": {
+				Type:         "http",
+				Scheme:       "bearer",
+				BearerFormat: "JWT",
+				Description:  "Bearer token for authentication",
+			},
+		}
 		
 		// Configure documentation and OpenAPI paths to be under /api/
 		config.DocsPath = "/api/docs"
@@ -300,9 +314,17 @@ func main() {
 		// Tell the CLI how to start your server
 		hooks.OnStart(func() {
 			addr := fmt.Sprintf("%s:%d", options.Host, options.Port)
-			fmt.Printf("🚀 {{.ProjectName}} server starting on http://%s\n", addr)
-			fmt.Printf("📚 API documentation available at http://%s/api/docs\n", addr)
-			fmt.Printf("📋 OpenAPI spec available at http://%s/api/openapi.json\n", addr)
+			
+			goflux.Greet(humaAPI, goflux.GreetOptions{
+				ServiceName: "{{.ProjectName}}",
+				Version:     "1.0.0",
+				Host:        options.Host,
+				Port:        options.Port,
+				ProxyPort:   projectConfig.Port,
+				DevMode:     options.Dev,
+				DocsPath:    config.DocsPath,
+				OpenAPIPath: config.OpenAPIPath,
+			})
 			
 			{{if eq .Router "fiber"}}
 			if err := app.Listen(addr); err != nil {

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRouter } from "./router";
 import "./styles.css";
 import reportWebVitals from "./reportWebVitals";
+import { auth } from "./lib/api-client";
 
 // Create a QueryClient instance
 const queryClient = new QueryClient({
@@ -17,6 +18,8 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+auth.setToken("demo-token");
 
 // Create a new router instance
 const router = createRouter();

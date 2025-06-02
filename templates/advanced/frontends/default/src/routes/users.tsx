@@ -47,9 +47,9 @@ function UsersPage() {
       )}
 
       {/* Users Grid */}
-      {usersQuery.data && usersQuery.data.length > 0 ? (
+      {usersQuery.data && usersQuery.data.users.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {usersQuery.data.map((user: User) => (
+          {usersQuery.data.users.map((user: User) => (
             <Card key={user.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -69,11 +69,11 @@ function UsersPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-sm text-muted-foreground space-y-1">
-                  {user.created_at && (
-                    <p>Created: {formatRelativeTime(user.created_at)}</p>
+                  {user.createdAt && (
+                    <p>Created: {formatRelativeTime(user.createdAt)}</p>
                   )}
-                  {user.updated_at && (
-                    <p>Updated: {formatRelativeTime(user.updated_at)}</p>
+                  {user.updatedAt && (
+                    <p>Updated: {formatRelativeTime(user.updatedAt)}</p>
                   )}
                 </div>
               </CardContent>
