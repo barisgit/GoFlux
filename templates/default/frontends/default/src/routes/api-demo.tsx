@@ -43,13 +43,13 @@ function ApiDemoPage() {
       if (!usersResult.success) {
         setError(usersResult.error.detail);
       } else {
-        setUsers(usersResult.data || []);
+        setUsers(usersResult.data.users || []);
       }
 
       if (!postsResult.success) {
         setError(postsResult.error.detail);
       } else {
-        setPosts(postsResult.data || []);
+        setPosts(postsResult.data.posts || []);
       }
     } catch (err) {
       setError("Failed to load data");
@@ -137,7 +137,7 @@ function ApiDemoPage() {
     if (!result.success) {
       setError(result.error.detail);
     } else {
-      setSelectedUser(result.data || null);
+      setSelectedUser(result.data.user || null);
     }
     setLoading(false);
   };
@@ -150,7 +150,7 @@ function ApiDemoPage() {
     if (!result.success) {
       setError(result.error.detail);
     } else {
-      setSelectedPost(result.data || null);
+      setSelectedPost(result.data.post || null);
     }
     setLoading(false);
   };
@@ -478,12 +478,12 @@ function ApiDemoPage() {
               {`// Type-safe API calls
 const usersResult = await api.users.list()
 if (usersResult.data) {
-  setUsers(usersResult.data) // User[]
+  setUsers(usersResult.data.users) // User[]
 }
 
 const userResult = await api.users.get(1)
 if (userResult.data) {
-  setUser(userResult.data) // User
+  setUser(userResult.data.user) // User
 }`}
             </pre>
           </div>
@@ -498,7 +498,7 @@ const newUser: Omit<User, 'id'> = {
 
 const result = await api.users.create(newUser)
 if (result.data) {
-  console.log(result.data) // User with id
+  console.log(result.data.user) // User with id
 }`}
             </pre>
           </div>

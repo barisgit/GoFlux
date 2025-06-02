@@ -25,7 +25,7 @@ import "github.com/barisgit/goflux"
 ```go
 // Only imports the specific router you need
 import gofluxfiber "github.com/barisgit/goflux/adapters/fiber"
-import "github.com/barisgit/goflux/base"
+import "github.com/barisgit/goflux/goflux"
 ```
 
 ## Usage
@@ -35,10 +35,10 @@ import "github.com/barisgit/goflux/base"
 ```go
 import (
     gofluxchi "github.com/barisgit/goflux/adapters/chi"
-    "github.com/barisgit/goflux/base"
+    "github.com/barisgit/goflux/goflux"
 )
 
-router.Handle("/*", gofluxchi.StaticHandler(assets, base.StaticConfig{SPAMode: true}))
+router.Handle("/*", gofluxchi.StaticHandler(assets, goflux.StaticConfig{SPAMode: true}))
 ```
 
 ### Fiber Router
@@ -46,10 +46,10 @@ router.Handle("/*", gofluxchi.StaticHandler(assets, base.StaticConfig{SPAMode: t
 ```go
 import (
     gofluxfiber "github.com/barisgit/goflux/adapters/fiber"
-    "github.com/barisgit/goflux/base"
+    "github.com/barisgit/goflux/goflux"
 )
 
-app.Use("/*", gofluxfiber.StaticHandler(assets, base.StaticConfig{SPAMode: true}))
+app.Use("/*", gofluxfiber.StaticHandler(assets, goflux.StaticConfig{SPAMode: true}))
 ```
 
 ### Gin Router
@@ -57,10 +57,10 @@ app.Use("/*", gofluxfiber.StaticHandler(assets, base.StaticConfig{SPAMode: true}
 ```go
 import (
     gofluxgin "github.com/barisgit/goflux/adapters/gin"
-    "github.com/barisgit/goflux/base"
+    "github.com/barisgit/goflux/goflux"
 )
 
-router.NoRoute(gofluxgin.StaticHandler(assets, base.StaticConfig{SPAMode: true}))
+router.NoRoute(gofluxgin.StaticHandler(assets, goflux.StaticConfig{SPAMode: true}))
 ```
 
 ### Echo Router
@@ -68,10 +68,10 @@ router.NoRoute(gofluxgin.StaticHandler(assets, base.StaticConfig{SPAMode: true})
 ```go
 import (
     gofluxecho "github.com/barisgit/goflux/adapters/echo"
-    "github.com/barisgit/goflux/base"
+    "github.com/barisgit/goflux/goflux"
 )
 
-router.Any("/*", gofluxecho.StaticHandler(assets, base.StaticConfig{SPAMode: true}))
+router.Any("/*", gofluxecho.StaticHandler(assets, goflux.StaticConfig{SPAMode: true}))
 ```
 
 ### Standard Library / Gorilla Mux / FastHTTP
@@ -79,19 +79,19 @@ router.Any("/*", gofluxecho.StaticHandler(assets, base.StaticConfig{SPAMode: tru
 ```go
 import (
     gofluxnethttp "github.com/barisgit/goflux/adapters/nethttp"
-    "github.com/barisgit/goflux/base"
+    "github.com/barisgit/goflux/goflux"
 )
 
 // Standard library mux
-router.Handle("/", gofluxnethttp.StaticHandler(assets, base.StaticConfig{SPAMode: true}))
+router.Handle("/", gofluxnethttp.StaticHandler(assets, goflux.StaticConfig{SPAMode: true}))
 
 // Gorilla Mux
-router.PathPrefix("/").Handler(gofluxnethttp.StaticHandler(assets, base.StaticConfig{SPAMode: true}))
+router.PathPrefix("/").Handler(gofluxnethttp.StaticHandler(assets, goflux.StaticConfig{SPAMode: true}))
 ```
 
 ## How It Works
 
-1. **Core Logic**: All static file logic is in `base.ServeStaticFile()` - router agnostic
+1. **Core Logic**: All static file logic is in `goflux.ServeStaticFile()` - router agnostic
 2. **Adapters**: Each adapter imports only its specific router and wraps the core logic
 3. **Templates**: GoFlux templates conditionally import only the needed adapter
 4. **Binary Size**: Go's linker only includes the imported router dependencies

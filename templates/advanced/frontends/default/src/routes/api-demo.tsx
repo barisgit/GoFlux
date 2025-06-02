@@ -76,13 +76,13 @@ function ApiDemoPage() {
   // Update selected user/post when query data changes
   useEffect(() => {
     if (getUserQuery.data && selectedUserId !== null) {
-      setSelectedUser(getUserQuery.data);
+      setSelectedUser(getUserQuery.data.user);
     }
   }, [getUserQuery.data, selectedUserId]);
 
   useEffect(() => {
     if (getPostQuery.data && selectedPostId !== null) {
-      setSelectedPost(getPostQuery.data);
+      setSelectedPost(getPostQuery.data.post);
     }
   }, [getPostQuery.data, selectedPostId]);
 
@@ -126,7 +126,7 @@ function ApiDemoPage() {
     createPostMutation.mutate({
       title: newPost.title,
       content: newPost.content,
-      user_id: newPost.user_id,
+      userId: newPost.user_id,
       published: false,
     });
   };
@@ -428,11 +428,11 @@ function ApiDemoPage() {
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">All Users</h3>
                 <Badge variant="secondary">
-                  {usersQuery.data?.length || 0} users
+                  {usersQuery.data?.users.length || 0} users
                 </Badge>
               </div>
               <div className="max-h-64 overflow-y-auto space-y-2">
-                {usersQuery.data?.map((user) => (
+                {usersQuery.data?.users.map((user) => (
                   <div
                     key={user.id}
                     className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
@@ -552,7 +552,7 @@ function ApiDemoPage() {
                       }
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {usersQuery.data?.map((user) => (
+                      {usersQuery.data?.users.map((user) => (
                         <option key={user.id} value={user.id}>
                           {user.name} ({user.email})
                         </option>
@@ -578,11 +578,11 @@ function ApiDemoPage() {
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">All Posts</h3>
                 <Badge variant="secondary">
-                  {postsQuery.data?.length || 0} posts
+                  {postsQuery.data?.posts.length || 0} posts
                 </Badge>
               </div>
               <div className="max-h-64 overflow-y-auto space-y-2">
-                {postsQuery.data?.map((post) => (
+                {postsQuery.data?.posts.map((post) => (
                   <div
                     key={post.id}
                     className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"

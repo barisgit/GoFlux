@@ -1,0 +1,402 @@
+package procedures
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"{{.ModuleName}}/internal/types"
+
+	"github.com/barisgit/goflux"
+	"github.com/danielgtaylor/huma/v2"
+)
+
+// Use GoFlux types directly for cleaner imports
+type Dependency = goflux.Dependency
+type Middleware = goflux.Middleware
+
+// ============================================================================
+// PARAMETER TYPES FOR API ENDPOINTS
+// ============================================================================
+
+// PaginationParams represents pagination query parameters
+// This will be automatically added to any endpoint that uses PaginationDep
+type PaginationParams struct {
+	Page     int `query:"page" minimum:"1" default:"1" doc:"Page number" example:"1"`
+	PageSize int `query:"page_size" minimum:"1" maximum:"100" default:"10" doc:"Items per page" example:"10"`
+}
+
+// SortParams represents sorting query parameters
+// This will be automatically added to any endpoint that uses SortDep
+type SortParams struct {
+	SortBy    string `query:"sort_by" enum:"name,created_at,updated_at" default:"created_at" doc:"Field to sort by" example:"created_at"`
+	SortOrder string `query:"sort_order" enum:"asc,desc" default:"desc" doc:"Sort order" example:"desc"`
+}
+
+// FilterParams represents filtering query parameters
+// This will be automatically added to any endpoint that uses FilterDep
+type FilterParams struct {
+	Search   string `query:"search" doc:"Search term" example:"john"`
+	Category string `query:"category" doc:"Filter by category" example:"tech"`
+	Status   string `query:"status" enum:"active,inactive,pending" doc:"Filter by status" example:"active"`
+}
+
+// ============================================================================
+// ERROR TYPES FOR CONSISTENT ERROR HANDLING
+// ============================================================================
+
+var (
+	UnauthorizedError   = goflux.NewStatusError(http.StatusUnauthorized, "Authentication required")
+	ForbiddenError      = goflux.NewStatusError(http.StatusForbidden, "Insufficient permissions")
+	NotFoundError       = goflux.NewStatusError(http.StatusNotFound, "Resource not found")
+	ConflictError       = goflux.NewStatusError(http.StatusConflict, "Resource already exists")
+	InternalServerError = goflux.NewStatusError(http.StatusInternalServerError, "Internal server error")
+)
+
+// ============================================================================
+// DEPENDENCIES WITH AUTOMATIC INPUT COMPOSITION
+// ============================================================================
+
+// PaginationDep provides pagination and automatically adds pagination fields to endpoint input
+// When this dependency is used, the endpoint will automatically get page and page_size query parameters
+var PaginationDep = goflux.NewDependencyWithInput("pagination", PaginationParams{},
+	func(ctx context.Context, input interface{}) (*PaginationParams, error) {
+		// The input here is the parsed PaginationParams from the dependency's InputFields
+		if paginationInput, ok := input.(*PaginationParams); ok {
+			// Validate pagination parameters
+			if paginationInput.Page < 1 {
+				paginationInput.Page = 1
+			}
+			if paginationInput.PageSize < 1 || paginationInput.PageSize > 100 {
+				paginationInput.PageSize = 10
+			}
+			return paginationInput, nil
+		}
+
+		// Fallback to defaults (shouldn't happen if parsing works correctly)
+		return &PaginationParams{Page: 1, PageSize: 10}, nil
+	},
+)
+
+// SortDep provides sorting and automatically adds sort fields to endpoint input
+// When this dependency is used, the endpoint will automatically get sort_by and sort_order query parameters
+var SortDep = goflux.NewDependencyWithInput("sort", SortParams{},
+	func(ctx context.Context, input interface{}) (*SortParams, error) {
+		// The input here is the parsed SortParams from the dependency's InputFields
+		if sortInput, ok := input.(*SortParams); ok {
+			// Validate sort parameters
+			validSortFields := []string{"name", "created_at", "updated_at"}
+			isValidSort := false
+			for _, field := range validSortFields {
+				if sortInput.SortBy == field {
+					isValidSort = true
+					break
+				}
+			}
+			if !isValidSort {
+				sortInput.SortBy = "created_at"
+			}
+			
+			if sortInput.SortOrder != "asc" && sortInput.SortOrder != "desc" {
+				sortInput.SortOrder = "desc"
+			}
+			
+			return sortInput, nil
+		}
+
+		// Fallback to defaults
+		return &SortParams{SortBy: "created_at", SortOrder: "desc"}, nil
+	},
+)
+
+// FilterDep provides filtering and automatically adds filter fields to endpoint input
+// When this dependency is used, the endpoint will automatically get search, category, and status query parameters
+var FilterDep = goflux.NewDependencyWithInput("filter", FilterParams{},
+	func(ctx context.Context, input interface{}) (*FilterParams, error) {
+		// The input here is the parsed FilterParams from the dependency's InputFields
+		if filterInput, ok := input.(*FilterParams); ok {
+			// Sanitize search input
+			if filterInput.Search != "" {
+				filterInput.Search = strings.TrimSpace(filterInput.Search)
+				// Basic XSS protection for search terms
+				filterInput.Search = strings.ReplaceAll(filterInput.Search, "<", "")
+				filterInput.Search = strings.ReplaceAll(filterInput.Search, ">", "")
+			}
+			
+			// Validate status enum
+			if filterInput.Status != "" {
+				validStatuses := []string{"active", "inactive", "pending"}
+				isValidStatus := false
+				for _, status := range validStatuses {
+					if filterInput.Status == status {
+						isValidStatus = true
+						break
+					}
+				}
+				if !isValidStatus {
+					filterInput.Status = ""
+				}
+			}
+			
+			return filterInput, nil
+		}
+
+		// Fallback to defaults
+		return &FilterParams{}, nil
+	},
+)
+
+// ============================================================================
+// CORE DEPENDENCIES WITHOUT INPUT (TRADITIONAL DEPENDENCIES)
+// ============================================================================
+
+// LoggerDep provides structured logging functionality
+// This dependency doesn't add input fields, it just provides a logger instance
+var LoggerDep = goflux.NewDependency("logger", func(ctx context.Context, input interface{}) (*slog.Logger, error) {
+	// Create a logger with some default fields
+	return slog.Default().With(
+		"service", "{{.ProjectName}}",
+		"version", "1.0.0",
+	), nil
+})
+
+// CurrentUserDep extracts authenticated user from context
+// This dependency requires authentication middleware and doesn't add input fields
+var CurrentUserDep = goflux.NewDependency("currentUser", func(ctx context.Context, input interface{}) (*types.User, error) {
+	user, ok := ctx.Value("user").(*types.User)
+	if !ok {
+		return nil, fmt.Errorf("user not found in context - authentication required")
+	}
+	return user, nil
+}).RequiresMiddleware(AuthMiddleware)
+
+// ============================================================================
+// MIDDLEWARE FUNCTIONS
+// ============================================================================
+
+// AuthMiddleware validates user authentication via Bearer token
+// This is a simple demo implementation - in production, use proper JWT validation
+func AuthMiddleware(ctx huma.Context, next func(huma.Context)) {
+	authHeader := ctx.Header("Authorization")
+	if authHeader == "" {
+		goflux.WriteErr(ctx, http.StatusUnauthorized, "Authentication required", fmt.Errorf("missing Authorization header"))
+		return
+	}
+
+	// Use tRPC-style approach for cleaner error handling
+	fluxCtx := goflux.Wrap(ctx)
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == authHeader {
+		fluxCtx.WriteStatusError(UnauthorizedError, fmt.Errorf("invalid authorization format"))
+		return
+	}
+
+	// Demo token validation - replace with real JWT validation
+	const validToken = "demo-token"
+	if token != validToken {
+		fluxCtx.WriteStatusError(ForbiddenError, fmt.Errorf("invalid token"))
+		return
+	}
+
+	// Create mock user - in real app, extract from JWT claims
+	user := &types.User{
+		ID:    1,
+		Name:  "Demo User",
+		Email: "demo@{{.ProjectName}}.com",
+		Age:   30,
+	}
+
+	// Store user in context for CurrentUserDep to access
+	ctx = huma.WithValue(ctx, "user", user)
+	next(ctx)
+}
+
+// ============================================================================
+// PROCEDURE BUILDERS (tRPC-style) - SHOWCASING DEPENDENCY INJECTION
+// ============================================================================
+
+// PublicProcedure - no authentication required, includes logger
+// Dependencies automatically add their input fields to any endpoint using this procedure
+var PublicProcedure = goflux.PublicProcedure(LoggerDep)
+
+// ProtectedProcedure - authentication required
+// The CurrentUserDep automatically includes AuthMiddleware, so we don't need to add it manually!
+// This showcases how dependencies can declare their middleware requirements
+var ProtectedProcedure = PublicProcedure.Inject(CurrentUserDep).WithSecurity(map[string][]string{
+	"Bearer": {"user"},
+})
+
+// ============================================================================
+// ENHANCED PROCEDURES WITH AUTOMATIC INPUT COMPOSITION
+// ============================================================================
+
+// ListProcedure - adds pagination, sorting, and filtering to ANY endpoint
+// When you use this procedure, your endpoint automatically gets:
+// - page, page_size query parameters (from PaginationDep)
+// - sort_by, sort_order query parameters (from SortDep)  
+// - search, category, status query parameters (from FilterDep)
+// - Authentication (from ProtectedProcedure -> CurrentUserDep -> AuthMiddleware)
+// - Logger (from PublicProcedure -> LoggerDep)
+//
+// The handler function automatically receives parsed and validated instances of:
+// - *PaginationParams
+// - *SortParams  
+// - *FilterParams
+// - *types.User (current user)
+// - *slog.Logger
+var ListProcedure = ProtectedProcedure.Inject(PaginationDep, SortDep, FilterDep)
+
+// SimpleListProcedure - just pagination and authentication
+// When you use this procedure, your endpoint automatically gets:
+// - page, page_size query parameters (from PaginationDep)
+// - Authentication (from ProtectedProcedure -> CurrentUserDep -> AuthMiddleware)
+// - Logger (from PublicProcedure -> LoggerDep)
+//
+// The handler function automatically receives:
+// - *PaginationParams
+// - *types.User (current user)
+// - *slog.Logger
+var SimpleListProcedure = ProtectedProcedure.Inject(PaginationDep)
+
+// ============================================================================
+// USAGE EXAMPLES IN COMMENTS
+// ============================================================================
+
+/*
+Example 1: Using ListProcedure for automatic pagination, sorting, and filtering
+
+// This endpoint automatically gets all these query parameters:
+// - page (int, default: 1)
+// - page_size (int, default: 10, max: 100)  
+// - sort_by (enum: name,created_at,updated_at, default: created_at)
+// - sort_order (enum: asc,desc, default: desc)
+// - search (string)
+// - category (string)
+// - status (enum: active,inactive,pending)
+
+procedures.ListProcedure.Get(api, "/api/users",
+	func(ctx context.Context,
+		input *struct{}, // Your custom input struct (can be empty)
+		logger *slog.Logger,        // Automatically injected
+		currentUser *types.User,    // Automatically injected (requires auth)
+		pagination *PaginationParams, // Automatically injected with parsed query params
+		sort *SortParams,             // Automatically injected with parsed query params
+		filter *FilterParams,         // Automatically injected with parsed query params
+	) (*YourOutputType, error) {
+		// All parameters are parsed, validated, and ready to use!
+		logger.Info("Listing users", 
+			"page", pagination.Page,
+			"page_size", pagination.PageSize,
+			"sort_by", sort.SortBy,
+			"search", filter.Search,
+			"user_id", currentUser.ID,
+		)
+		
+		// Your business logic here...
+		return &YourOutputType{}, nil
+	},
+	func(o *huma.Operation) {
+		o.Summary = "List users with automatic pagination and filtering"
+		o.Tags = []string{"Users"}
+	},
+)
+
+Example 2: Using SimpleListProcedure for just pagination
+
+// This endpoint automatically gets:
+// - page (int, default: 1)
+// - page_size (int, default: 10, max: 100)
+
+procedures.SimpleListProcedure.Get(api, "/api/simple-users",
+	func(ctx context.Context,
+		input *struct{},
+		logger *slog.Logger,
+		currentUser *types.User,
+		pagination *PaginationParams, // Only pagination, no sorting/filtering
+	) (*YourOutputType, error) {
+		// Your business logic here...
+		return &YourOutputType{}, nil
+	},
+	func(o *huma.Operation) {
+		o.Summary = "Simple user list with pagination only"
+		o.Tags = []string{"Users"}
+	},
+)
+
+Example 3: Using ProtectedProcedure for no automatic query parameters
+
+// This endpoint only gets authentication and logging
+
+procedures.ProtectedProcedure.Post(api, "/api/users",
+	func(ctx context.Context,
+		input *CreateUserInput, // Your custom input
+		logger *slog.Logger,
+		currentUser *types.User,
+		// No automatic query parameters
+	) (*YourOutputType, error) {
+		// Your business logic here...
+		return &YourOutputType{}, nil
+	},
+	func(o *huma.Operation) {
+		o.Summary = "Create user"
+		o.Tags = []string{"Users"}
+	},
+)
+
+Example 4: Custom dependency with input
+
+// You can create your own dependencies that add input fields:
+
+var GeolocationDep = goflux.NewDependencyWithInput("geolocation", struct {
+	Latitude  float64 `query:"lat" doc:"Latitude" example:"37.7749"`
+	Longitude float64 `query:"lon" doc:"Longitude" example:"-122.4194"`
+	Radius    int     `query:"radius" default:"1000" doc:"Search radius in meters" example:"1000"`
+}{}, func(ctx context.Context, input interface{}) (*GeolocationParams, error) {
+	// Parse and validate geolocation parameters
+	// Return processed geolocation data
+})
+
+// Then use it in a custom procedure:
+var GeoListProcedure = ProtectedProcedure.Inject(PaginationDep, GeolocationDep)
+
+// Now any endpoint using GeoListProcedure automatically gets:
+// - Authentication
+// - Logging  
+// - Pagination (page, page_size)
+// - Geolocation (lat, lon, radius)
+*/
+
+// ============================================================================
+// ADVANCED FEATURES
+// ============================================================================
+
+/*
+Advanced Feature 1: Middleware Deduplication
+
+GoFlux automatically deduplicates middleware. If you have:
+- ProcedureA with AuthMiddleware
+- ProcedureB with AuthMiddleware  
+- ProcedureC = ProcedureA.Inject(SomeDependencyThatAlsoRequiresAuth)
+
+AuthMiddleware will only be applied once, even though it's required by multiple dependencies.
+
+Advanced Feature 2: Dependency Removal
+
+You can remove dependencies or middleware from procedures:
+
+var CustomProcedure = ListProcedure.
+	RemoveDependency(reflect.TypeOf((*FilterParams)(nil)).Elem()). // Remove filtering
+	RemoveMiddleware(AuthMiddleware) // Remove authentication
+
+Advanced Feature 3: Conditional Dependencies
+
+You can create dependencies that behave differently based on context:
+
+var ConditionalDep = goflux.NewDependency("conditional", func(ctx context.Context, input interface{}) (*SomeType, error) {
+	if isAdminRequest(ctx) {
+		return getAdminData(ctx)
+	}
+	return getUserData(ctx)
+})
+*/ 

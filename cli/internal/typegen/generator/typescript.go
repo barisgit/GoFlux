@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/barisgit/goflux/cli/internal/typegen/config"
+	"github.com/barisgit/goflux/cli/internal/typegen/processor"
 	"github.com/barisgit/goflux/cli/internal/typegen/types"
 )
 
@@ -16,6 +18,9 @@ func GenerateTypeScriptTypes(typeDefs []types.TypeDefinition) error {
 	if err := os.MkdirAll(typesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create types directory: %w", err)
 	}
+
+	// Create processor for case conversion
+	proc := processor.NewTypeProcessor(config.DefaultCasingConfig())
 
 	var content strings.Builder
 	content.WriteString("// Auto-generated TypeScript types from Go structs\n")
@@ -39,7 +44,10 @@ func GenerateTypeScriptTypes(typeDefs []types.TypeDefinition) error {
 			for _, field := range t.Fields {
 				fieldName := field.JSONTag
 				if fieldName == "" {
-					fieldName = toSnakeCase(field.Name)
+					fieldName = proc.ProcessFieldName(field.Name)
+				} else {
+					// Process the JSON tag through the field name converter for consistency
+					fieldName = proc.ProcessFieldName(fieldName)
 				}
 
 				optional := ""

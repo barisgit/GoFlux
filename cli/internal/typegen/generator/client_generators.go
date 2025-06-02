@@ -4,9 +4,19 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/barisgit/goflux/config"
 	"github.com/barisgit/goflux/cli/internal/typegen/types"
+	"github.com/barisgit/goflux/config"
 )
+
+// detectAuthRequirements analyzes routes to determine if authentication is needed
+func detectAuthRequirements(routes []types.APIRoute) (bool, string) {
+	for _, route := range routes {
+		if route.RequiresAuth {
+			return true, route.AuthType
+		}
+	}
+	return false, ""
+}
 
 // GenerateAPIClient generates the API client based on configuration
 func GenerateAPIClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig) error {
@@ -54,11 +64,14 @@ func generateBasicJSClient(routes []types.APIRoute, typeDefs []types.TypeDefinit
 func generateBasicTSClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig, libDir, outputFile string) error {
 	usedTypes := collectUsedTypes(routes, typeDefs)
 	apiObject := generateAPIObjectString(routes, "basic-ts")
+	requiresAuth, authType := detectAuthRequirements(routes)
 
 	data := ClientTemplateData{
-		UsedTypes:   usedTypes,
-		TypesImport: config.TypesImport,
-		APIObject:   apiObject,
+		UsedTypes:    usedTypes,
+		TypesImport:  config.TypesImport,
+		APIObject:    apiObject,
+		RequiresAuth: requiresAuth,
+		AuthType:     authType,
 	}
 
 	return generateFromTemplate(basicTSClientTemplate, data, filepath.Join(libDir, outputFile))
@@ -68,11 +81,14 @@ func generateBasicTSClient(routes []types.APIRoute, typeDefs []types.TypeDefinit
 func generateAxiosClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig, libDir, outputFile string) error {
 	usedTypes := collectUsedTypes(routes, typeDefs)
 	apiObject := generateAPIObjectString(routes, "axios")
+	requiresAuth, authType := detectAuthRequirements(routes)
 
 	data := ClientTemplateData{
-		UsedTypes:   usedTypes,
-		TypesImport: config.TypesImport,
-		APIObject:   apiObject,
+		UsedTypes:    usedTypes,
+		TypesImport:  config.TypesImport,
+		APIObject:    apiObject,
+		RequiresAuth: requiresAuth,
+		AuthType:     authType,
 	}
 
 	return generateFromTemplate(axiosClientTemplate, data, filepath.Join(libDir, outputFile))
@@ -82,6 +98,7 @@ func generateAxiosClient(routes []types.APIRoute, typeDefs []types.TypeDefinitio
 func generateTRPCLikeClient(routes []types.APIRoute, typeDefs []types.TypeDefinition, config *config.APIClientConfig, libDir, outputFile string) error {
 	usedTypes := collectUsedTypes(routes, typeDefs)
 	apiObject := generateTRPCAPIObjectString(routes, config)
+	requiresAuth, authType := detectAuthRequirements(routes)
 
 	var queryKeys string
 	if config.ReactQuery.QueryKeys {
@@ -95,6 +112,8 @@ func generateTRPCLikeClient(routes []types.APIRoute, typeDefs []types.TypeDefini
 		ReactQueryEnabled: config.ReactQuery.Enabled,
 		QueryKeysEnabled:  config.ReactQuery.QueryKeys,
 		QueryKeys:         queryKeys,
+		RequiresAuth:      requiresAuth,
+		AuthType:          authType,
 	}
 
 	return generateFromTemplate(trpcLikeClientTemplate, data, filepath.Join(libDir, outputFile))

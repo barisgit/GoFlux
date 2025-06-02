@@ -5,11 +5,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
+	"github.com/barisgit/goflux/cli/internal/typegen/config"
+	"github.com/barisgit/goflux/cli/internal/typegen/processor"
 	"github.com/barisgit/goflux/cli/internal/typegen/types"
 )
+
+// Analyzer handles OpenAPI-based analysis of projects
+type Analyzer struct {
+	processor *processor.TypeProcessor
+	debug     bool
+}
+
+// NewAnalyzer creates a new analyzer with the given configuration
+func NewAnalyzer(casingConfig *config.CasingConfig, debug bool) *Analyzer {
+	return &Analyzer{
+		processor: processor.NewTypeProcessor(casingConfig),
+		debug:     debug,
+	}
+}
 
 // OpenAPISpec represents the OpenAPI 3.x specification structure
 type OpenAPISpec struct {
@@ -55,6 +70,7 @@ type Operation struct {
 	Parameters  []Parameter               `json:"parameters,omitempty"`
 	RequestBody *RequestBody              `json:"requestBody,omitempty"`
 	Responses   map[string]ResponseObject `json:"responses,omitempty"`
+	Security    []map[string][]string     `json:"security,omitempty"`
 }
 
 type Parameter struct {
@@ -81,21 +97,21 @@ type MediaTypeObject struct {
 }
 
 // AnalyzeProject performs OpenAPI-based analysis of a project
-func AnalyzeProject(projectPath string, debug bool) (*types.APIAnalysis, error) {
-	if debug {
+func (a *Analyzer) AnalyzeProject(projectPath string) (*types.APIAnalysis, error) {
+	if a.debug {
 		fmt.Printf("Analyzing project at: %s\n", projectPath)
 	}
 
 	// Look for OpenAPI spec in the project
-	spec, err := loadOpenAPISpec(projectPath, debug)
+	spec, err := a.loadOpenAPISpec(projectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load OpenAPI spec: %w", err)
 	}
 
 	// Parse the OpenAPI spec to extract routes and types
-	analysis := parseOpenAPISpec(spec, debug)
+	analysis := a.parseOpenAPISpec(spec)
 
-	if debug {
+	if a.debug {
 		fmt.Printf("Extracted %d routes and %d types from OpenAPI spec\n",
 			len(analysis.Routes), len(analysis.TypeDefs))
 	}
@@ -104,7 +120,7 @@ func AnalyzeProject(projectPath string, debug bool) (*types.APIAnalysis, error) 
 }
 
 // loadOpenAPISpec loads the OpenAPI specification from available sources
-func loadOpenAPISpec(projectPath string, debug bool) (*OpenAPISpec, error) {
+func (a *Analyzer) loadOpenAPISpec(projectPath string) (*OpenAPISpec, error) {
 	// Try to find OpenAPI spec file
 	possiblePaths := []string{
 		filepath.Join(projectPath, "build", "openapi.json"),
@@ -114,14 +130,14 @@ func loadOpenAPISpec(projectPath string, debug bool) (*OpenAPISpec, error) {
 	}
 
 	for _, path := range possiblePaths {
-		if debug {
+		if a.debug {
 			fmt.Printf("Checking for OpenAPI spec at: %s\n", path)
 		}
 
 		if _, err := os.Stat(path); err == nil {
 			data, err := os.ReadFile(path)
 			if err != nil {
-				if debug {
+				if a.debug {
 					fmt.Printf("Failed to read %s: %v\n", path, err)
 				}
 				continue
@@ -130,13 +146,13 @@ func loadOpenAPISpec(projectPath string, debug bool) (*OpenAPISpec, error) {
 			var spec OpenAPISpec
 			err = json.Unmarshal(data, &spec)
 			if err != nil {
-				if debug {
+				if a.debug {
 					fmt.Printf("Failed to parse %s: %v\n", path, err)
 				}
 				continue
 			}
 
-			if debug {
+			if a.debug {
 				fmt.Printf("Successfully loaded OpenAPI spec from: %s\n", path)
 			}
 			return &spec, nil
@@ -147,7 +163,7 @@ func loadOpenAPISpec(projectPath string, debug bool) (*OpenAPISpec, error) {
 }
 
 // parseOpenAPISpec converts OpenAPI spec to our internal format
-func parseOpenAPISpec(spec *OpenAPISpec, debug bool) *types.APIAnalysis {
+func (a *Analyzer) parseOpenAPISpec(spec *OpenAPISpec) *types.APIAnalysis {
 	analysis := &types.APIAnalysis{
 		Routes:           []types.APIRoute{},
 		TypeDefs:         []types.TypeDefinition{},
@@ -176,16 +192,28 @@ func parseOpenAPISpec(spec *OpenAPISpec, debug bool) *types.APIAnalysis {
 				Method:      method,
 				Path:        path,
 				Handler:     operation.OperationID,
-				Description: buildRouteDescription(operation),
+				Description: a.buildRouteDescription(operation),
 			}
 
 			// Extract request type from requestBody
 			if operation.RequestBody != nil {
-				route.RequestType = extractTypeFromRequestBody(operation.RequestBody)
+				route.RequestType = a.extractTypeFromRequestBody(operation.RequestBody)
 			}
 
 			// Extract response type from responses
-			route.ResponseType = extractTypeFromResponses(operation.Responses)
+			route.ResponseType = a.extractTypeFromResponses(operation.Responses)
+
+			// Extract query parameters
+			if operation.Parameters != nil {
+				route.QueryParameters = a.extractQueryParameters(operation.Parameters)
+			}
+
+			// Extract security requirements
+			if len(operation.Security) > 0 {
+				route.RequiresAuth = true
+				route.SecuritySchemes = operation.Security
+				route.AuthType = a.extractAuthType(operation.Security)
+			}
 
 			analysis.Routes = append(analysis.Routes, route)
 		}
@@ -193,31 +221,31 @@ func parseOpenAPISpec(spec *OpenAPISpec, debug bool) *types.APIAnalysis {
 
 	// Extract type definitions from components/schemas
 	if spec.Components != nil && spec.Components.Schemas != nil {
-		analysis.TypeDefs = extractTypeDefinitions(spec.Components.Schemas, debug)
+		analysis.TypeDefs = a.extractTypeDefinitions(spec.Components.Schemas)
 	}
 
 	return analysis
 }
 
 // extractTypeFromRequestBody extracts the type name from request body schema
-func extractTypeFromRequestBody(requestBody *RequestBody) string {
+func (a *Analyzer) extractTypeFromRequestBody(requestBody *RequestBody) string {
 	for _, mediaType := range requestBody.Content {
 		if mediaType.Schema != nil {
-			return extractTypeName(mediaType.Schema)
+			return a.extractTypeName(mediaType.Schema)
 		}
 	}
 	return ""
 }
 
 // extractTypeFromResponses extracts the type name from successful response schemas
-func extractTypeFromResponses(responses map[string]ResponseObject) string {
+func (a *Analyzer) extractTypeFromResponses(responses map[string]ResponseObject) string {
 	// Look for 200, 201, or other success responses
 	successCodes := []string{"200", "201", "202"}
 	for _, code := range successCodes {
 		if response, exists := responses[code]; exists {
 			for _, mediaType := range response.Content {
 				if mediaType.Schema != nil {
-					return extractTypeName(mediaType.Schema)
+					return a.extractTypeName(mediaType.Schema)
 				}
 			}
 		}
@@ -226,62 +254,27 @@ func extractTypeFromResponses(responses map[string]ResponseObject) string {
 }
 
 // extractTypeName extracts the type name from a schema
-func extractTypeName(schema *Schema) string {
+func (a *Analyzer) extractTypeName(schema *Schema) string {
 	if schema.Ref != "" {
-		// Extract from $ref like "#/components/schemas/User"
-		parts := strings.Split(schema.Ref, "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1]
-		}
+		return a.processor.ExtractTypeFromRef(schema.Ref)
 	}
 
 	// Handle type field which can be string or array in OpenAPI 3.1
-	typeStr := getTypeString(schema.Type)
+	typeStr := a.processor.NormalizeTypeString(schema.Type)
 
 	if typeStr == "array" && schema.Items != nil {
-		itemType := extractTypeName(schema.Items)
+		itemType := a.extractTypeName(schema.Items)
 		if itemType != "" {
 			return itemType + "[]"
 		}
 	}
 
 	// For simple types, return the TypeScript equivalent
-	switch typeStr {
-	case "string":
-		return "string"
-	case "number", "integer":
-		return "number"
-	case "boolean":
-		return "boolean"
-	case "object":
-		return "unknown"
-	default:
-		return "unknown"
-	}
-}
-
-// getTypeString safely extracts type as string (handles OpenAPI 3.1 array format)
-func getTypeString(typeField interface{}) string {
-	if typeField == nil {
-		return ""
-	}
-
-	switch v := typeField.(type) {
-	case string:
-		return v
-	case []interface{}:
-		// OpenAPI 3.1 allows type to be an array like ["string", "null"]
-		if len(v) > 0 {
-			if str, ok := v[0].(string); ok {
-				return str
-			}
-		}
-	}
-	return ""
+	return a.processor.ConvertOpenAPITypeToTypeScript(typeStr)
 }
 
 // extractTypeDefinitions converts OpenAPI schemas to TypeScript type definitions
-func extractTypeDefinitions(schemas map[string]Schema, debug bool) []types.TypeDefinition {
+func (a *Analyzer) extractTypeDefinitions(schemas map[string]Schema) []types.TypeDefinition {
 	var typeDefs []types.TypeDefinition
 
 	for name, schema := range schemas {
@@ -290,22 +283,23 @@ func extractTypeDefinitions(schemas map[string]Schema, debug bool) []types.TypeD
 			continue
 		}
 
-		typeDef := convertSchemaToTypeDef(name, schema, debug)
+		typeDef := a.convertSchemaToTypeDef(name, schema)
 		if typeDef.Name != "" {
 			typeDefs = append(typeDefs, typeDef)
 		}
 	}
 
 	// Sort for consistent output
-	sort.Slice(typeDefs, func(i, j int) bool {
-		return typeDefs[i].Name < typeDefs[j].Name
-	})
+	a.processor.SortTypeDefinitions(typeDefs)
 
 	return typeDefs
 }
 
 // convertSchemaToTypeDef converts an OpenAPI schema to a TypeScript type definition
-func convertSchemaToTypeDef(name string, schema Schema, debug bool) types.TypeDefinition {
+func (a *Analyzer) convertSchemaToTypeDef(name string, schema Schema) types.TypeDefinition {
+	// Sanitize the type name for TypeScript compatibility
+	sanitizedName := a.processor.ProcessTypeName(name)
+
 	if len(schema.Enum) > 0 {
 		// Handle enum types
 		enumValues := make([]string, len(schema.Enum))
@@ -313,13 +307,13 @@ func convertSchemaToTypeDef(name string, schema Schema, debug bool) types.TypeDe
 			enumValues[i] = fmt.Sprintf(`"%v"`, val)
 		}
 		return types.TypeDefinition{
-			Name:       name,
+			Name:       sanitizedName,
 			IsEnum:     true,
 			EnumValues: enumValues,
 		}
 	}
 
-	typeStr := getTypeString(schema.Type)
+	typeStr := a.processor.NormalizeTypeString(schema.Type)
 	if typeStr == "object" && schema.Properties != nil {
 		// Handle object types
 		var fields []types.FieldInfo
@@ -330,27 +324,25 @@ func convertSchemaToTypeDef(name string, schema Schema, debug bool) types.TypeDe
 				continue
 			}
 
-			fieldType := schemaToTypeScriptType(propSchema)
-			isRequired := contains(schema.Required, propName)
+			fieldType := a.schemaToTypeScriptType(propSchema)
+			isRequired := a.processor.ContainsString(schema.Required, propName)
 
 			field := types.FieldInfo{
 				Name:        propName,
 				TypeName:    fieldType,
 				JSONTag:     propName,
 				Optional:    !isRequired,
-				IsArray:     getTypeString(propSchema.Type) == "array",
+				IsArray:     a.processor.NormalizeTypeString(propSchema.Type) == "array",
 				Description: propSchema.Description,
 			}
 			fields = append(fields, field)
 		}
 
 		// Sort fields for consistent output
-		sort.Slice(fields, func(i, j int) bool {
-			return fields[i].Name < fields[j].Name
-		})
+		a.processor.SortFieldInfos(fields)
 
 		return types.TypeDefinition{
-			Name:   name,
+			Name:   sanitizedName,
 			Fields: fields,
 		}
 	}
@@ -359,15 +351,12 @@ func convertSchemaToTypeDef(name string, schema Schema, debug bool) types.TypeDe
 }
 
 // schemaToTypeScriptType converts an OpenAPI schema to a TypeScript type string
-func schemaToTypeScriptType(schema Schema) string {
+func (a *Analyzer) schemaToTypeScriptType(schema Schema) string {
 	if schema.Ref != "" {
-		parts := strings.Split(schema.Ref, "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1]
-		}
+		return a.processor.ExtractTypeFromRef(schema.Ref)
 	}
 
-	typeStr := getTypeString(schema.Type)
+	typeStr := a.processor.NormalizeTypeString(schema.Type)
 	switch typeStr {
 	case "string":
 		return "string"
@@ -377,7 +366,7 @@ func schemaToTypeScriptType(schema Schema) string {
 		return "boolean"
 	case "array":
 		if schema.Items != nil {
-			itemType := schemaToTypeScriptType(*schema.Items)
+			itemType := a.schemaToTypeScriptType(*schema.Items)
 			return itemType + "[]"
 		}
 		return "unknown[]"
@@ -388,18 +377,8 @@ func schemaToTypeScriptType(schema Schema) string {
 	}
 }
 
-// contains checks if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
 // buildRouteDescription builds a comprehensive route description using OpenAPI details
-func buildRouteDescription(operation *Operation) string {
+func (a *Analyzer) buildRouteDescription(operation *Operation) string {
 	var description strings.Builder
 
 	// Use the primary description or summary
@@ -437,4 +416,98 @@ func buildRouteDescription(operation *Operation) string {
 	}
 
 	return strings.TrimSpace(description.String())
+}
+
+// extractQueryParameters extracts query parameters from operation parameters
+func (a *Analyzer) extractQueryParameters(parameters []Parameter) []types.QueryParameter {
+	var queryParams []types.QueryParameter
+
+	for _, param := range parameters {
+		if param.In == "query" && param.Schema != nil {
+			queryParam := types.QueryParameter{
+				Name:        param.Name,
+				Type:        a.convertSchemaToTSType(param.Schema),
+				Required:    param.Required,
+				Description: param.Description,
+			}
+
+			// Extract default value if present
+			if param.Schema.Example != nil {
+				queryParam.Default = param.Schema.Example
+			}
+
+			// Extract enum values if present
+			if len(param.Schema.Enum) > 0 {
+				enumValues := make([]string, len(param.Schema.Enum))
+				for i, val := range param.Schema.Enum {
+					enumValues[i] = fmt.Sprintf("%v", val)
+				}
+				queryParam.Enum = enumValues
+			}
+
+			queryParams = append(queryParams, queryParam)
+		}
+	}
+
+	return queryParams
+}
+
+// convertSchemaToTSType converts an OpenAPI schema to TypeScript type string
+func (a *Analyzer) convertSchemaToTSType(schema *Schema) string {
+	if schema == nil {
+		return "unknown"
+	}
+
+	if schema.Ref != "" {
+		return a.processor.ExtractTypeFromRef(schema.Ref)
+	}
+
+	typeStr := a.processor.NormalizeTypeString(schema.Type)
+	switch typeStr {
+	case "string":
+		return "string"
+	case "number", "integer":
+		return "number"
+	case "boolean":
+		return "boolean"
+	case "array":
+		if schema.Items != nil {
+			itemType := a.convertSchemaToTSType(schema.Items)
+			return itemType + "[]"
+		}
+		return "unknown[]"
+	case "object":
+		return "Record<string, unknown>"
+	default:
+		return "unknown"
+	}
+}
+
+// extractAuthType determines the authentication type from security schemes
+func (a *Analyzer) extractAuthType(security []map[string][]string) string {
+	if len(security) == 0 {
+		return ""
+	}
+
+	// Check the first security requirement
+	for authType := range security[0] {
+		switch authType {
+		case "Bearer", "bearer":
+			return "Bearer"
+		case "Basic", "basic":
+			return "Basic"
+		case "ApiKey", "apiKey", "api_key":
+			return "ApiKey"
+		default:
+			return authType // Return as-is for custom schemes
+		}
+	}
+
+	return ""
+}
+
+// AnalyzeProject is the main entry point (backwards compatibility)
+func AnalyzeProject(projectPath string, debug bool) (*types.APIAnalysis, error) {
+	analyzer := NewAnalyzer(config.DefaultCasingConfig(), debug)
+	return analyzer.AnalyzeProject(projectPath)
 }

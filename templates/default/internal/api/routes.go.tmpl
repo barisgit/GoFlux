@@ -2,27 +2,52 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"{{.ModuleName}}/internal/db"
+	"{{.ModuleName}}/internal/procedures"
 	"{{.ModuleName}}/internal/types"
 
+	"github.com/barisgit/goflux"
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// SetupRoutes configures all API routes for Huma
+// SetupRoutes configures all API routes for Huma using modern GoFlux patterns
 func SetupRoutes(api huma.API, database db.Database) {
-	// Users routes
-	setupUserRoutes(api, database)
+	// Add enhanced health check with features showcase
+	setupPublicRoutes(api, database)
 	
-	// Posts routes
-	setupPostRoutes(api, database)
+	// Setup protected routes that require authentication
+	setupProtectedRoutes(api, database)
 }
 
-// User route inputs and outputs
+// ============================================================================
+// INPUT & OUTPUT TYPES
+// ============================================================================
 
+// Health Check
+type InfoOutput struct {
+	Body struct {
+		Status   string            `json:"status" example:"ok" doc:"Service status"`
+		Message  string            `json:"message" example:"{{.ProjectName}} API is running" doc:"Status message"`
+		Version  string            `json:"version" example:"1.0.0" doc:"Service version"`
+		Features []string          `json:"features" doc:"Available features"`
+		Endpoints map[string]string `json:"endpoints" doc:"Available endpoint categories"`
+	}
+}
+
+// User Management
 type GetUsersOutput struct {
-	Body []types.User `json:"users" doc:"List of users"`
+	Body struct {
+		Users      []types.User                     `json:"users" doc:"List of users"`
+		Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+		Sort       *procedures.SortParams          `json:"sort" doc:"Sort parameters"`
+		Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+		Total      int                             `json:"total" doc:"Total count"`
+		Message    string                          `json:"message" doc:"Success message"`
+	}
 }
 
 type GetUserInput struct {
@@ -30,7 +55,10 @@ type GetUserInput struct {
 }
 
 type GetUserOutput struct {
-	Body types.User `json:"user" doc:"User details"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		User    types.User `json:"user" doc:"User data"`
+	}
 }
 
 type CreateUserInput struct {
@@ -38,7 +66,10 @@ type CreateUserInput struct {
 }
 
 type CreateUserOutput struct {
-	Body types.User `json:"user" doc:"Created user"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		User    types.User `json:"user" doc:"Created user"`
+	}
 }
 
 type UpdateUserInput struct {
@@ -47,7 +78,10 @@ type UpdateUserInput struct {
 }
 
 type UpdateUserOutput struct {
-	Body types.User `json:"user" doc:"Updated user"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		User    types.User `json:"user" doc:"Updated user"`
+	}
 }
 
 type DeleteUserInput struct {
@@ -61,10 +95,16 @@ type DeleteUserOutput struct {
 	}
 }
 
-// Post route inputs and outputs
-
+// Post Management
 type GetPostsOutput struct {
-	Body []types.Post `json:"posts" doc:"List of posts"`
+	Body struct {
+		Posts      []types.Post                     `json:"posts" doc:"List of posts"`
+		Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+		Sort       *procedures.SortParams          `json:"sort" doc:"Sort parameters"`
+		Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+		Total      int                             `json:"total" doc:"Total count"`
+		Message    string                          `json:"message" doc:"Success message"`
+	}
 }
 
 type GetPostInput struct {
@@ -72,7 +112,10 @@ type GetPostInput struct {
 }
 
 type GetPostOutput struct {
-	Body types.Post `json:"post" doc:"Post details"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		Post    types.Post `json:"post" doc:"Post data"`
+	}
 }
 
 type CreatePostInput struct {
@@ -80,7 +123,10 @@ type CreatePostInput struct {
 }
 
 type CreatePostOutput struct {
-	Body types.Post `json:"post" doc:"Created post"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		Post    types.Post `json:"post" doc:"Created post"`
+	}
 }
 
 type UpdatePostInput struct {
@@ -89,7 +135,10 @@ type UpdatePostInput struct {
 }
 
 type UpdatePostOutput struct {
-	Body types.Post `json:"post" doc:"Updated post"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		Post    types.Post `json:"post" doc:"Updated post"`
+	}
 }
 
 type DeletePostInput struct {
@@ -108,216 +157,567 @@ type GetPostsByUserInput struct {
 }
 
 type GetPostsByUserOutput struct {
-	Body []types.Post `json:"posts" doc:"List of posts by user"`
+	Body struct {
+		Posts   []types.Post `json:"posts" doc:"List of posts by user"`
+		Message string       `json:"message" doc:"Success message"`
+	}
 }
 
-// User route handlers
-func setupUserRoutes(api huma.API, database db.Database) {
-	// GET /api/users
-	huma.Register(api, huma.Operation{
-		OperationID: "get-users",
-		Method:      http.MethodGet,
-		Path:        "/api/users",
-		Summary:     "Get all users",
-		Description: "Retrieve a list of all users in the system",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *struct{}) (*GetUsersOutput, error) {
-		// In a real app, this would query the database
-		users := []types.User{
-			{ID: 1, Name: "John Doe", Email: "john@example.com", Age: 30},
-			{ID: 2, Name: "Jane Smith", Email: "jane@example.com", Age: 25},
-		}
-		
-		return &GetUsersOutput{Body: users}, nil
+// ============================================================================
+// PUBLIC ROUTES - No Authentication Required
+// ============================================================================
+
+func setupPublicRoutes(api huma.API, database db.Database) {
+	// Enhanced info endpoint showcasing GoFlux features
+	goflux.Get(api, "/api/info", func(ctx context.Context, input *struct{}) (*InfoOutput, error) {
+		return &InfoOutput{
+			Body: struct {
+				Status   string            `json:"status" example:"ok" doc:"Service status"`
+				Message  string            `json:"message" example:"{{.ProjectName}} API is running" doc:"Status message"`
+				Version  string            `json:"version" example:"1.0.0" doc:"Service version"`
+				Features []string          `json:"features" doc:"Available features"`
+				Endpoints map[string]string `json:"endpoints" doc:"Available endpoint categories"`
+			}{
+				Status:  "ok",
+				Message: "{{.ProjectName}} API - Powered by GoFlux with Elegant Dependency Injection",
+				Version: "1.0.0",
+				Features: []string{
+					"Clean Dependency Injection",
+					"Automatic Parameter Extraction",
+					"tRPC-style Procedures",
+					"Built-in Authentication",
+					"Dynamic Input Composition",
+					"OpenAPI Generation",
+					"Middleware Deduplication",
+					"Error Handling",
+				},
+				Endpoints: map[string]string{
+					"public":        "/api/info",
+					"authenticated": "/api/users, /api/posts",
+				},
+			},
+		}, nil
+	}, func(o *huma.Operation) {
+		o.Tags = []string{"Public", "Info"}
+		o.Summary = "Get API information and features"
+		o.Description = "Public endpoint showcasing GoFlux capabilities without authentication"
 	})
 
-	// GET /api/users/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "get-user",
-		Method:      http.MethodGet,
-		Path:        "/api/users/{id}",
-		Summary:     "Get user by ID",
-		Description: "Retrieve a specific user by their ID",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *GetUserInput) (*GetUserOutput, error) {
-		// Mock user data - in real app, query database
-		user := types.User{
-			ID:    input.ID,
-			Name:  "John Doe",
-			Email: "john@example.com",
-			Age:   30,
-		}
+	// Public demo endpoint with parameter validation
+	procedures.PublicProcedure.Get(api, "/api/demo/{value}",
+		func(ctx context.Context,
+			input *struct {
+				Value  string `path:"value" validate:"required,min=3,max=50" doc:"Value to validate" example:"test"`
+				Format string `query:"format" enum:"json,xml,plain" default:"json" doc:"Response format"`
+				Debug  bool   `query:"debug" doc:"Enable debug mode"`
+			},
+			logger *slog.Logger,
+		) (*struct {
+			Body struct {
+				Input   interface{} `json:"input" doc:"Parsed input parameters"`
+				Valid   bool        `json:"valid" doc:"Validation result"`
+				Message string      `json:"message" doc:"Validation message"`
+				Debug   interface{} `json:"debug,omitempty" doc:"Debug information"`
+			}
+		}, error) {
+			logger.Info("Demo validation endpoint called",
+				"value", input.Value,
+				"format", input.Format,
+				"debug", input.Debug,
+			)
 
-		return &GetUserOutput{Body: user}, nil
-	})
+			var debugInfo interface{}
+			if input.Debug {
+				debugInfo = map[string]interface{}{
+					"value_length": len(input.Value),
+					"format_used":  input.Format,
+					"timestamp":    "2024-01-15T10:30:00Z",
+				}
+			}
 
-	// POST /api/users
-	huma.Register(api, huma.Operation{
-		OperationID:   "create-user",
-		Method:        http.MethodPost,
-		Path:          "/api/users",
-		Summary:       "Create a new user",
-		Description:   "Create a new user in the system",
-		Tags:          []string{"Users"},
-		DefaultStatus: http.StatusCreated,
-	}, func(ctx context.Context, input *CreateUserInput) (*CreateUserOutput, error) {
-		// In a real app, save to database and return the created user with ID
-		user := types.User{
-			ID:    3, // Mock ID
-			Name:  input.Body.Name,
-			Email: input.Body.Email,
-			Age:   input.Body.Age,
-		}
-		
-		return &CreateUserOutput{Body: user}, nil
-	})
-
-	// PUT /api/users/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "update-user",
-		Method:      http.MethodPut,
-		Path:        "/api/users/{id}",
-		Summary:     "Update user",
-		Description: "Update an existing user's information",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *UpdateUserInput) (*UpdateUserOutput, error) {
-		// In a real app, update in database
-		user := types.User{
-			ID:    input.ID,
-			Name:  input.Body.Name,
-			Email: input.Body.Email,
-			Age:   input.Body.Age,
-		}
-
-		return &UpdateUserOutput{Body: user}, nil
-	})
-
-	// DELETE /api/users/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "delete-user",
-		Method:      http.MethodDelete,
-		Path:        "/api/users/{id}",
-		Summary:     "Delete user",
-		Description: "Delete a user from the system",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *DeleteUserInput) (*DeleteUserOutput, error) {
-		// In a real app, delete from database
-		resp := &DeleteUserOutput{}
-		resp.Body.Message = "User deleted successfully"
-		resp.Body.ID = input.ID
-		
-		return resp, nil
-	})
+			return &struct {
+				Body struct {
+					Input   interface{} `json:"input" doc:"Parsed input parameters"`
+					Valid   bool        `json:"valid" doc:"Validation result"`
+					Message string      `json:"message" doc:"Validation message"`
+					Debug   interface{} `json:"debug,omitempty" doc:"Debug information"`
+				}
+			}{
+				Body: struct {
+					Input   interface{} `json:"input" doc:"Parsed input parameters"`
+					Valid   bool        `json:"valid" doc:"Validation result"`
+					Message string      `json:"message" doc:"Validation message"`
+					Debug   interface{} `json:"debug,omitempty" doc:"Debug information"`
+				}{
+					Input: map[string]interface{}{
+						"value":  input.Value,
+						"format": input.Format,
+						"debug":  input.Debug,
+					},
+					Valid:   len(input.Value) >= 3 && len(input.Value) <= 50,
+					Message: fmt.Sprintf("Value '%s' is valid with format '%s'", input.Value, input.Format),
+					Debug:   debugInfo,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Validation", "Testing", "Public"}
+			o.Summary = "Validate input parameters"
+			o.Description = "Demonstrate parameter validation, enums, and debug features"
+		},
+	)
 }
 
-// Post route handlers
-func setupPostRoutes(api huma.API, database db.Database) {
-	// GET /api/posts
-	huma.Register(api, huma.Operation{
-		OperationID: "get-posts",
-		Method:      http.MethodGet,
-		Path:        "/api/posts",
-		Summary:     "Get all posts",
-		Description: "Retrieve a list of all posts in the system",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *struct{}) (*GetPostsOutput, error) {
-		posts := []types.Post{
-			{ID: 1, Title: "First Post", Content: "This is the content of the first post", UserID: 1},
-			{ID: 2, Title: "Second Post", Content: "This is the content of the second post", UserID: 2},
-		}
-		
-		return &GetPostsOutput{Body: posts}, nil
-	})
+// ============================================================================
+// PROTECTED ROUTES - Authentication Required
+// ============================================================================
 
-	// GET /api/posts/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "get-post",
-		Method:      http.MethodGet,
-		Path:        "/api/posts/{id}",
-		Summary:     "Get post by ID",
-		Description: "Retrieve a specific post by its ID",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *GetPostInput) (*GetPostOutput, error) {
-		post := types.Post{
-			ID:      input.ID,
-			Title:   "Sample Post",
-			Content: "This is a sample post content",
-			UserID:  1,
-		}
+func setupProtectedRoutes(api huma.API, database db.Database) {
+	// User management with clean dependency injection
+	
+	// List users with automatic pagination, sorting, and filtering
+	procedures.ListProcedure.Get(api, "/api/users",
+		func(ctx context.Context,
+			input *struct{},
+			logger *slog.Logger,
+			currentUser *types.User,
+			pagination *procedures.PaginationParams,
+			sort *procedures.SortParams,
+			filter *procedures.FilterParams,
+		) (*GetUsersOutput, error) {
+			logger.Info("Listing users",
+				"page", pagination.Page,
+				"page_size", pagination.PageSize,
+				"sort_by", sort.SortBy,
+				"search", filter.Search,
+				"requested_by", currentUser.ID,
+			)
 
-		return &GetPostOutput{Body: post}, nil
-	})
+			// Mock users with pagination simulation
+			allUsers := []types.User{
+				{ID: 1, Name: "John Doe", Email: "john@example.com", Age: 30},
+				{ID: 2, Name: "Jane Smith", Email: "jane@example.com", Age: 25},
+				{ID: 3, Name: "Bob Johnson", Email: "bob@example.com", Age: 35},
+				{ID: 4, Name: "Alice Brown", Email: "alice@example.com", Age: 28},
+				{ID: 5, Name: "Charlie Wilson", Email: "charlie@example.com", Age: 32},
+			}
 
-	// POST /api/posts
-	huma.Register(api, huma.Operation{
-		OperationID:   "create-post",
-		Method:        http.MethodPost,
-		Path:          "/api/posts",
-		Summary:       "Create a new post",
-		Description:   "Create a new post in the system",
-		Tags:          []string{"Posts"},
-		DefaultStatus: http.StatusCreated,
-	}, func(ctx context.Context, input *CreatePostInput) (*CreatePostOutput, error) {
-		post := types.Post{
-			ID:      3, // Mock ID
-			Title:   input.Body.Title,
-			Content: input.Body.Content,
-			UserID:  input.Body.UserID,
-		}
-		
-		return &CreatePostOutput{Body: post}, nil
-	})
+			// Apply search filter if provided
+			var filteredUsers []types.User
+			if filter.Search != "" {
+				for _, user := range allUsers {
+					if fmt.Sprintf("%s %s", user.Name, user.Email) != filter.Search {
+						filteredUsers = append(filteredUsers, user)
+					}
+				}
+			} else {
+				filteredUsers = allUsers
+			}
 
-	// PUT /api/posts/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "update-post",
-		Method:      http.MethodPut,
-		Path:        "/api/posts/{id}",
-		Summary:     "Update post",
-		Description: "Update an existing post's information",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *UpdatePostInput) (*UpdatePostOutput, error) {
-		post := types.Post{
-			ID:      input.ID,
-			Title:   input.Body.Title,
-			Content: input.Body.Content,
-			UserID:  input.Body.UserID,
-		}
+			// Simulate pagination
+			start := (pagination.Page - 1) * pagination.PageSize
+			end := start + pagination.PageSize
+			if start >= len(filteredUsers) {
+				filteredUsers = []types.User{}
+			} else if end > len(filteredUsers) {
+				filteredUsers = filteredUsers[start:]
+			} else {
+				filteredUsers = filteredUsers[start:end]
+			}
 
-		return &UpdatePostOutput{Body: post}, nil
-	})
+			return &GetUsersOutput{
+				Body: struct {
+					Users      []types.User                     `json:"users" doc:"List of users"`
+					Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+					Sort       *procedures.SortParams          `json:"sort" doc:"Sort parameters"`
+					Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+					Total      int                             `json:"total" doc:"Total count"`
+					Message    string                          `json:"message" doc:"Success message"`
+				}{
+					Users:      filteredUsers,
+					Pagination: pagination,
+					Sort:       sort,
+					Filters:    filter,
+					Total:      len(allUsers),
+					Message:    fmt.Sprintf("Retrieved %d users (page %d)", len(filteredUsers), pagination.Page),
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "List users with pagination and filtering"
+			o.Description = "Get paginated list of users with automatic parameter extraction"
+		},
+	)
 
-	// DELETE /api/posts/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "delete-post",
-		Method:      http.MethodDelete,
-		Path:        "/api/posts/{id}",
-		Summary:     "Delete post",
-		Description: "Delete a post from the system",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *DeletePostInput) (*DeletePostOutput, error) {
-		resp := &DeletePostOutput{}
-		resp.Body.Message = "Post deleted successfully"
-		resp.Body.ID = input.ID
-		
-		return resp, nil
-	})
+	// Get user by ID
+	procedures.ProtectedProcedure.Get(api, "/api/users/{id}",
+		func(ctx context.Context,
+			input *GetUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*GetUserOutput, error) {
+			logger.Info("Getting user by ID",
+				"user_id", input.ID,
+				"requested_by", currentUser.ID,
+			)
 
-	// GET /api/posts/user/{userId}
-	huma.Register(api, huma.Operation{
-		OperationID: "get-posts-by-user",
-		Method:      http.MethodGet,
-		Path:        "/api/posts/user/{userId}",
-		Summary:     "Get posts by user",
-		Description: "Retrieve all posts created by a specific user",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *GetPostsByUserInput) (*GetPostsByUserOutput, error) {
-		// Mock posts for the user
-		posts := []types.Post{
-			{ID: 1, Title: "User's First Post", Content: "Content by user " + strconv.Itoa(input.UserID), UserID: input.UserID},
-			{ID: 2, Title: "User's Second Post", Content: "More content by user " + strconv.Itoa(input.UserID), UserID: input.UserID},
-		}
+			// Mock user data - in real app, query database
+			user := types.User{
+				ID:    input.ID,
+				Name:  "John Doe",
+				Email: "john@example.com",
+				Age:   30,
+			}
 
-		return &GetPostsByUserOutput{Body: posts}, nil
-	})
+			return &GetUserOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					User    types.User `json:"user" doc:"User data"`
+				}{
+					Message: "User retrieved successfully",
+					User:    user,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Get user by ID"
+			o.Description = "Retrieve a specific user by their ID"
+		},
+	)
+
+	// Create user
+	procedures.ProtectedProcedure.Post(api, "/api/users",
+		func(ctx context.Context,
+			input *CreateUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*CreateUserOutput, error) {
+			logger.Info("Creating user",
+				"name", input.Body.Name,
+				"email", input.Body.Email,
+				"created_by", currentUser.ID,
+			)
+
+			// Mock user creation
+			newUser := types.User{
+				ID:    100,
+				Name:  input.Body.Name,
+				Email: input.Body.Email,
+				Age:   input.Body.Age,
+			}
+
+			return &CreateUserOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					User    types.User `json:"user" doc:"Created user"`
+				}{
+					Message: "User created successfully",
+					User:    newUser,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Create a new user"
+			o.Description = "Create a new user (requires authentication)"
+			o.DefaultStatus = http.StatusCreated
+		},
+	)
+
+	// Update user
+	procedures.ProtectedProcedure.Put(api, "/api/users/{id}",
+		func(ctx context.Context,
+			input *UpdateUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*UpdateUserOutput, error) {
+			logger.Info("Updating user",
+				"user_id", input.ID,
+				"updated_by", currentUser.ID,
+			)
+
+			user := types.User{
+				ID:    input.ID,
+				Name:  input.Body.Name,
+				Email: input.Body.Email,
+				Age:   input.Body.Age,
+			}
+
+			return &UpdateUserOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					User    types.User `json:"user" doc:"Updated user"`
+				}{
+					Message: "User updated successfully",
+					User:    user,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Update user"
+			o.Description = "Update an existing user's information"
+		},
+	)
+
+	// Delete user
+	procedures.ProtectedProcedure.Delete(api, "/api/users/{id}",
+		func(ctx context.Context,
+			input *DeleteUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*DeleteUserOutput, error) {
+			logger.Info("Deleting user",
+				"user_id", input.ID,
+				"deleted_by", currentUser.ID,
+			)
+
+			return &DeleteUserOutput{
+				Body: struct {
+					Message string `json:"message" example:"User deleted successfully" doc:"Success message"`
+					ID      int    `json:"id" example:"1" doc:"Deleted user ID"`
+				}{
+					Message: "User deleted successfully",
+					ID:      input.ID,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Delete user"
+			o.Description = "Delete a user from the system"
+		},
+	)
+
+	// ========================================================================
+	// POST ROUTES
+	// ========================================================================
+
+	// List posts with advanced filtering
+	procedures.ListProcedure.Get(api, "/api/posts",
+		func(ctx context.Context,
+			input *struct{},
+			logger *slog.Logger,
+			currentUser *types.User,
+			pagination *procedures.PaginationParams,
+			sort *procedures.SortParams,
+			filter *procedures.FilterParams,
+		) (*GetPostsOutput, error) {
+			logger.Info("Listing posts",
+				"page", pagination.Page,
+				"sort_by", sort.SortBy,
+				"search", filter.Search,
+				"user_id", currentUser.ID,
+			)
+
+			// Mock posts
+			posts := []types.Post{
+				{ID: 1, Title: "Go Programming Basics", Content: "Learn the fundamentals of Go", UserID: 1, Published: true},
+				{ID: 2, Title: "Advanced Go Patterns", Content: "Advanced Go programming patterns", UserID: 1, Published: true},
+				{ID: 3, Title: "Web Development with Go", Content: "Building web apps with Go", UserID: 2, Published: true},
+				{ID: 4, Title: "Microservices in Go", Content: "Building microservices", UserID: 2, Published: false},
+			}
+
+			return &GetPostsOutput{
+				Body: struct {
+					Posts      []types.Post                     `json:"posts" doc:"List of posts"`
+					Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+					Sort       *procedures.SortParams          `json:"sort" doc:"Sort parameters"`
+					Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+					Total      int                             `json:"total" doc:"Total count"`
+					Message    string                          `json:"message" doc:"Success message"`
+				}{
+					Posts:      posts,
+					Pagination: pagination,
+					Sort:       sort,
+					Filters:    filter,
+					Total:      len(posts),
+					Message:    fmt.Sprintf("Retrieved %d posts", len(posts)),
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "List posts with advanced filtering"
+			o.Description = "Get paginated list of posts with sorting and filtering capabilities"
+		},
+	)
+
+	// Get post by ID
+	procedures.ProtectedProcedure.Get(api, "/api/posts/{id}",
+		func(ctx context.Context,
+			input *GetPostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*GetPostOutput, error) {
+			logger.Info("Getting post by ID",
+				"post_id", input.ID,
+				"requested_by", currentUser.ID,
+			)
+
+			post := types.Post{
+				ID:      input.ID,
+				Title:   "Sample Post",
+				Content: "This is a sample post content",
+				UserID:  1,
+				Published: true,
+			}
+
+			return &GetPostOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					Post    types.Post `json:"post" doc:"Post data"`
+				}{
+					Message: "Post retrieved successfully",
+					Post:    post,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Get post by ID"
+			o.Description = "Retrieve a specific post by its ID"
+		},
+	)
+
+	// Create post
+	procedures.ProtectedProcedure.Post(api, "/api/posts",
+		func(ctx context.Context,
+			input *CreatePostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*CreatePostOutput, error) {
+			logger.Info("Creating post",
+				"title", input.Body.Title,
+				"author_id", currentUser.ID,
+			)
+
+			newPost := types.Post{
+				ID:        200,
+				Title:     input.Body.Title,
+				Content:   input.Body.Content,
+				UserID:    currentUser.ID,
+				Published: input.Body.Published,
+			}
+
+			return &CreatePostOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					Post    types.Post `json:"post" doc:"Created post"`
+				}{
+					Message: "Post created successfully",
+					Post:    newPost,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Create a new post"
+			o.Description = "Create a new blog post (requires authentication)"
+			o.DefaultStatus = http.StatusCreated
+		},
+	)
+
+	// Update post
+	procedures.ProtectedProcedure.Put(api, "/api/posts/{id}",
+		func(ctx context.Context,
+			input *UpdatePostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*UpdatePostOutput, error) {
+			logger.Info("Updating post",
+				"post_id", input.ID,
+				"updated_by", currentUser.ID,
+			)
+
+			post := types.Post{
+				ID:        input.ID,
+				Title:     input.Body.Title,
+				Content:   input.Body.Content,
+				UserID:    input.Body.UserID,
+				Published: input.Body.Published,
+			}
+
+			return &UpdatePostOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					Post    types.Post `json:"post" doc:"Updated post"`
+				}{
+					Message: "Post updated successfully",
+					Post:    post,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Update post"
+			o.Description = "Update an existing post's information"
+		},
+	)
+
+	// Delete post
+	procedures.ProtectedProcedure.Delete(api, "/api/posts/{id}",
+		func(ctx context.Context,
+			input *DeletePostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*DeletePostOutput, error) {
+			logger.Info("Deleting post",
+				"post_id", input.ID,
+				"deleted_by", currentUser.ID,
+			)
+
+			return &DeletePostOutput{
+				Body: struct {
+					Message string `json:"message" example:"Post deleted successfully" doc:"Success message"`
+					ID      int    `json:"id" example:"1" doc:"Deleted post ID"`
+				}{
+					Message: "Post deleted successfully",
+					ID:      input.ID,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Delete post"
+			o.Description = "Delete a post from the system"
+		},
+	)
+
+	// Get posts by user
+	procedures.ProtectedProcedure.Get(api, "/api/posts/user/{userId}",
+		func(ctx context.Context,
+			input *GetPostsByUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*GetPostsByUserOutput, error) {
+			logger.Info("Getting posts by user",
+				"target_user_id", input.UserID,
+				"requested_by", currentUser.ID,
+			)
+
+			// Mock posts for the user
+			posts := []types.Post{
+				{ID: 1, Title: "User's First Post", Content: "Content by user " + strconv.Itoa(input.UserID), UserID: input.UserID, Published: true},
+				{ID: 2, Title: "User's Second Post", Content: "More content by user " + strconv.Itoa(input.UserID), UserID: input.UserID, Published: true},
+			}
+
+			return &GetPostsByUserOutput{
+				Body: struct {
+					Posts   []types.Post `json:"posts" doc:"List of posts by user"`
+					Message string       `json:"message" doc:"Success message"`
+				}{
+					Posts:   posts,
+					Message: fmt.Sprintf("Retrieved %d posts for user %d", len(posts), input.UserID),
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Get posts by user"
+			o.Description = "Retrieve all posts created by a specific user"
+		},
+	)
 } 

@@ -1,27 +1,52 @@
 package api
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"{{.ModuleName}}/internal/procedures"
 	"{{.ModuleName}}/internal/service"
 	"{{.ModuleName}}/internal/types"
-	"context"
-	"net/http"
 
+	"github.com/barisgit/goflux"
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// SetupRoutes configures all API routes for Huma
+// SetupRoutes configures all API routes for Huma using modern GoFlux patterns
 func SetupRoutes(api huma.API, svc *service.Service) {
-	// Users routes
-	setupUserRoutes(api, svc)
-
-	// Posts routes
-	setupPostRoutes(api, svc)
+	// Add enhanced health check with features showcase
+	setupPublicRoutes(api, svc)
+	
+	// Setup protected routes that require authentication
+	setupProtectedRoutes(api, svc)
 }
 
-// User route inputs and outputs
+// ============================================================================
+// INPUT & OUTPUT TYPES
+// ============================================================================
 
+// Health Check
+type InfoOutput struct {
+	Body struct {
+		Status    string            `json:"status" example:"ok" doc:"Service status"`
+		Message   string            `json:"message" example:"{{.ProjectName}} API is running" doc:"Status message"`
+		Version   string            `json:"version" example:"1.0.0" doc:"Service version"`
+		Features  []string          `json:"features" doc:"Available features"`
+		Endpoints map[string]string `json:"endpoints" doc:"Available endpoint categories"`
+	}
+}
+
+// User Management
 type GetUsersOutput struct {
-	Body []types.User `json:"users" doc:"List of users"`
+	Body struct {
+		Users      []types.User                     `json:"users" doc:"List of users"`
+		Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+		Sort       *procedures.SortParams          `json:"sort" doc:"Sort parameters"`
+		Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+		Total      int                             `json:"total" doc:"Total count"`
+		Message    string                          `json:"message" doc:"Success message"`
+	}
 }
 
 type GetUserInput struct {
@@ -29,7 +54,10 @@ type GetUserInput struct {
 }
 
 type GetUserOutput struct {
-	Body types.User `json:"user" doc:"User details"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		User    types.User `json:"user" doc:"User data"`
+	}
 }
 
 type CreateUserInput struct {
@@ -37,7 +65,10 @@ type CreateUserInput struct {
 }
 
 type CreateUserOutput struct {
-	Body types.User `json:"user" doc:"Created user"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		User    types.User `json:"user" doc:"Created user"`
+	}
 }
 
 type UpdateUserInput struct {
@@ -46,7 +77,10 @@ type UpdateUserInput struct {
 }
 
 type UpdateUserOutput struct {
-	Body types.User `json:"user" doc:"Updated user"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		User    types.User `json:"user" doc:"Updated user"`
+	}
 }
 
 type DeleteUserInput struct {
@@ -60,10 +94,16 @@ type DeleteUserOutput struct {
 	}
 }
 
-// Post route inputs and outputs
-
+// Post Management
 type GetPostsOutput struct {
-	Body []types.Post `json:"posts" doc:"List of posts"`
+	Body struct {
+		Posts      []types.Post                     `json:"posts" doc:"List of posts"`
+		Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+		Sort       *procedures.SortParams          `json:"Sort parameters"`
+		Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+		Total      int                             `json:"total" doc:"Total count"`
+		Message    string                          `json:"message" doc:"Success message"`
+	}
 }
 
 type GetPostInput struct {
@@ -71,7 +111,10 @@ type GetPostInput struct {
 }
 
 type GetPostOutput struct {
-	Body types.Post `json:"post" doc:"Post details"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		Post    types.Post `json:"post" doc:"Post data"`
+	}
 }
 
 type CreatePostInput struct {
@@ -79,7 +122,10 @@ type CreatePostInput struct {
 }
 
 type CreatePostOutput struct {
-	Body types.Post `json:"post" doc:"Created post"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		Post    types.Post `json:"post" doc:"Created post"`
+	}
 }
 
 type UpdatePostInput struct {
@@ -88,7 +134,10 @@ type UpdatePostInput struct {
 }
 
 type UpdatePostOutput struct {
-	Body types.Post `json:"post" doc:"Updated post"`
+	Body struct {
+		Message string     `json:"message" doc:"Success message"`
+		Post    types.Post `json:"post" doc:"Updated post"`
+	}
 }
 
 type DeletePostInput struct {
@@ -107,226 +156,583 @@ type GetPostsByUserInput struct {
 }
 
 type GetPostsByUserOutput struct {
-	Body []types.Post `json:"posts" doc:"List of posts by user"`
+	Body struct {
+		Posts   []types.Post `json:"posts" doc:"List of posts by user"`
+		Message string       `json:"message" doc:"Success message"`
+	}
 }
 
-// User route handlers
-func setupUserRoutes(api huma.API, svc *service.Service) {
-	// GET /api/users
-	huma.Register(api, huma.Operation{
-		OperationID: "get-users",
-		Method:      http.MethodGet,
-		Path:        "/api/users",
-		Summary:     "Get all users",
-		Description: "Retrieve a list of all users in the system",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *struct{}) (*GetUsersOutput, error) {
-		users, err := svc.GetUsers(ctx)
-		if err != nil {
-			return nil, err
-		}
+// ============================================================================
+// PUBLIC ROUTES - No Authentication Required
+// ============================================================================
 
-		return &GetUsersOutput{Body: users}, nil
-	})
-
-	// GET /api/users/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "get-user",
-		Method:      http.MethodGet,
-		Path:        "/api/users/{id}",
-		Summary:     "Get user by ID",
-		Description: "Retrieve a specific user by their ID",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *GetUserInput) (*GetUserOutput, error) {
-		user, err := svc.GetUserByID(ctx, input.ID)
-		if err != nil {
-			return nil, err
-		}
-		if user == nil {
-			return nil, huma.Error404NotFound("User not found")
-		}
-
-		return &GetUserOutput{Body: *user}, nil
-	})
-
-	// POST /api/users
-	huma.Register(api, huma.Operation{
-		OperationID:   "create-user",
-		Method:        http.MethodPost,
-		Path:          "/api/users",
-		Summary:       "Create a new user",
-		Description:   "Create a new user in the system",
-		Tags:          []string{"Users"},
-		DefaultStatus: http.StatusCreated,
-	}, func(ctx context.Context, input *CreateUserInput) (*CreateUserOutput, error) {
-		user, err := svc.CreateUser(ctx, &input.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		return &CreateUserOutput{Body: *user}, nil
-	})
-
-	// PUT /api/users/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "update-user",
-		Method:      http.MethodPut,
-		Path:        "/api/users/{id}",
-		Summary:     "Update user",
-		Description: "Update an existing user's information",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *UpdateUserInput) (*UpdateUserOutput, error) {
-		user, err := svc.UpdateUser(ctx, input.ID, &input.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		return &UpdateUserOutput{Body: *user}, nil
-	})
-
-	// DELETE /api/users/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "delete-user",
-		Method:      http.MethodDelete,
-		Path:        "/api/users/{id}",
-		Summary:     "Delete user",
-		Description: "Delete a user from the system",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *DeleteUserInput) (*DeleteUserOutput, error) {
-		err := svc.DeleteUser(ctx, input.ID)
-		if err != nil {
-			return nil, err
-		}
-
-		return &DeleteUserOutput{
+func setupPublicRoutes(api huma.API, svc *service.Service) {
+	// Enhanced info endpoint showcasing GoFlux features
+	goflux.Get(api, "/api/info", func(ctx context.Context, input *struct{}) (*InfoOutput, error) {
+		return &InfoOutput{
 			Body: struct {
-				Message string `json:"message" example:"User deleted successfully" doc:"Success message"`
-				ID      int    `json:"id" example:"1" doc:"Deleted user ID"`
+				Status    string            `json:"status" example:"ok" doc:"Service status"`
+				Message   string            `json:"message" example:"{{.ProjectName}} API is running" doc:"Status message"`
+				Version   string            `json:"version" example:"1.0.0" doc:"Service version"`
+				Features  []string          `json:"features" doc:"Available features"`
+				Endpoints map[string]string `json:"endpoints" doc:"Available endpoint categories"`
 			}{
-				Message: "User deleted successfully",
-				ID:      input.ID,
+				Status:  "ok",
+				Message: "{{.ProjectName}} Advanced API - Powered by GoFlux with Service Layer",
+				Version: "1.0.0",
+				Features: []string{
+					"Clean Dependency Injection",
+					"Automatic Parameter Extraction",
+					"tRPC-style Procedures",
+					"Built-in Authentication",
+					"Dynamic Input Composition",
+					"Service Layer Architecture",
+					"Database Integration",
+					"OpenAPI Generation",
+					"Middleware Deduplication",
+					"Error Handling",
+				},
+				Endpoints: map[string]string{
+					"public":        "/api/info",
+					"authenticated": "/api/users, /api/posts",
+				},
 			},
 		}, nil
+	}, func(o *huma.Operation) {
+		o.Tags = []string{"Public", "Info"}
+		o.Summary = "Get API information and features"
+		o.Description = "Public endpoint showcasing GoFlux capabilities with service layer"
 	})
+
+	// Public demo endpoint with parameter validation
+	procedures.PublicProcedure.Get(api, "/api/demo/{value}",
+		func(ctx context.Context,
+			input *struct {
+				Value  string `path:"value" validate:"required,min=3,max=50" doc:"Value to validate" example:"test"`
+				Format string `query:"format" enum:"json,xml,plain" default:"json" doc:"Response format"`
+				Debug  bool   `query:"debug" doc:"Enable debug mode"`
+			},
+			logger *slog.Logger,
+		) (*struct {
+			Body struct {
+				Input   interface{} `json:"input" doc:"Parsed input parameters"`
+				Valid   bool        `json:"valid" doc:"Validation result"`
+				Message string      `json:"message" doc:"Validation message"`
+				Debug   interface{} `json:"debug,omitempty" doc:"Debug information"`
+			}
+		}, error) {
+			logger.Info("Demo validation endpoint called",
+				"value", input.Value,
+				"format", input.Format,
+				"debug", input.Debug,
+			)
+
+			var debugInfo interface{}
+			if input.Debug {
+				debugInfo = map[string]interface{}{
+					"value_length": len(input.Value),
+					"format_used":  input.Format,
+					"timestamp":    "2024-01-15T10:30:00Z",
+					"service":      "{{.ProjectName}}",
+				}
+			}
+
+			return &struct {
+				Body struct {
+					Input   interface{} `json:"input" doc:"Parsed input parameters"`
+					Valid   bool        `json:"valid" doc:"Validation result"`
+					Message string      `json:"message" doc:"Validation message"`
+					Debug   interface{} `json:"debug,omitempty" doc:"Debug information"`
+				}
+			}{
+				Body: struct {
+					Input   interface{} `json:"input" doc:"Parsed input parameters"`
+					Valid   bool        `json:"valid" doc:"Validation result"`
+					Message string      `json:"message" doc:"Validation message"`
+					Debug   interface{} `json:"debug,omitempty" doc:"Debug information"`
+				}{
+					Input: map[string]interface{}{
+						"value":  input.Value,
+						"format": input.Format,
+						"debug":  input.Debug,
+					},
+					Valid:   len(input.Value) >= 3 && len(input.Value) <= 50,
+					Message: fmt.Sprintf("Value '%s' is valid with format '%s'", input.Value, input.Format),
+					Debug:   debugInfo,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Validation", "Testing", "Public"}
+			o.Summary = "Validate input parameters"
+			o.Description = "Demonstrate parameter validation, enums, and debug features"
+		},
+	)
 }
 
-// Post route handlers
-func setupPostRoutes(api huma.API, svc *service.Service) {
-	// GET /api/posts
-	huma.Register(api, huma.Operation{
-		OperationID: "get-posts",
-		Method:      http.MethodGet,
-		Path:        "/api/posts",
-		Summary:     "Get all posts",
-		Description: "Retrieve a list of all posts in the system",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *struct{}) (*GetPostsOutput, error) {
-		posts, err := svc.GetPosts(ctx)
-		if err != nil {
-			return nil, err
-		}
+// ============================================================================
+// PROTECTED ROUTES - Authentication Required
+// ============================================================================
 
-		return &GetPostsOutput{Body: posts}, nil
-	})
+func setupProtectedRoutes(api huma.API, svc *service.Service) {
+	// User management with clean dependency injection and service layer
+	
+	// List users with automatic pagination, sorting, and filtering
+	procedures.ListProcedure.Get(api, "/api/users",
+		func(ctx context.Context,
+			input *struct{},
+			logger *slog.Logger,
+			currentUser *types.User,
+			pagination *procedures.PaginationParams,
+			sort *procedures.SortParams,
+			filter *procedures.FilterParams,
+		) (*GetUsersOutput, error) {
+			logger.Info("Listing users",
+				"page", pagination.Page,
+				"page_size", pagination.PageSize,
+				"sort_by", sort.SortBy,
+				"search", filter.Search,
+				"requested_by", currentUser.ID,
+			)
 
-	// GET /api/posts/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "get-post",
-		Method:      http.MethodGet,
-		Path:        "/api/posts/{id}",
-		Summary:     "Get post by ID",
-		Description: "Retrieve a specific post by its ID",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *GetPostInput) (*GetPostOutput, error) {
-		post, err := svc.GetPostByID(ctx, input.ID)
-		if err != nil {
-			return nil, err
-		}
-		if post == nil {
-			return nil, huma.Error404NotFound("Post not found")
-		}
+			// Use service layer for business logic
+			users, err := svc.GetUsers(ctx)
+			if err != nil {
+				logger.Error("Failed to get users", "error", err)
+				return nil, err
+			}
 
-		return &GetPostOutput{Body: *post}, nil
-	})
+			// Apply client-side filtering for demo (in real app, pass filters to service)
+			filteredUsers := users
+			if filter.Search != "" {
+				var searchResults []types.User
+				for _, user := range users {
+					if fmt.Sprintf("%s %s", user.Name, user.Email) != filter.Search {
+						searchResults = append(searchResults, user)
+					}
+				}
+				filteredUsers = searchResults
+			}
 
-	// POST /api/posts
-	huma.Register(api, huma.Operation{
-		OperationID:   "create-post",
-		Method:        http.MethodPost,
-		Path:          "/api/posts",
-		Summary:       "Create a new post",
-		Description:   "Create a new post in the system",
-		Tags:          []string{"Posts"},
-		DefaultStatus: http.StatusCreated,
-	}, func(ctx context.Context, input *CreatePostInput) (*CreatePostOutput, error) {
-		post, err := svc.CreatePost(ctx, &input.Body)
-		if err != nil {
-			return nil, err
-		}
+			// Apply pagination
+			start := (pagination.Page - 1) * pagination.PageSize
+			end := start + pagination.PageSize
+			if start >= len(filteredUsers) {
+				filteredUsers = []types.User{}
+			} else if end > len(filteredUsers) {
+				filteredUsers = filteredUsers[start:]
+			} else {
+				filteredUsers = filteredUsers[start:end]
+			}
 
-		return &CreatePostOutput{Body: *post}, nil
-	})
+			return &GetUsersOutput{
+				Body: struct {
+					Users      []types.User                     `json:"users" doc:"List of users"`
+					Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+					Sort       *procedures.SortParams          `json:"sort" doc:"Sort parameters"`
+					Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+					Total      int                             `json:"total" doc:"Total count"`
+					Message    string                          `json:"message" doc:"Success message"`
+				}{
+					Users:      filteredUsers,
+					Pagination: pagination,
+					Sort:       sort,
+					Filters:    filter,
+					Total:      len(users),
+					Message:    fmt.Sprintf("Retrieved %d users (page %d)", len(filteredUsers), pagination.Page),
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "List users with pagination and filtering"
+			o.Description = "Get paginated list of users with automatic parameter extraction"
+		},
+	)
 
-	// PUT /api/posts/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "update-post",
-		Method:      http.MethodPut,
-		Path:        "/api/posts/{id}",
-		Summary:     "Update post",
-		Description: "Update an existing post's information",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *UpdatePostInput) (*UpdatePostOutput, error) {
-		post := types.Post{
-			ID:        input.ID,
-			Title:     input.Body.Title,
-			Content:   input.Body.Content,
-			UserID:    input.Body.UserID,
-			Published: input.Body.Published,
-		}
+	// Get user by ID
+	procedures.ProtectedProcedure.Get(api, "/api/users/{id}",
+		func(ctx context.Context,
+			input *GetUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*GetUserOutput, error) {
+			logger.Info("Getting user by ID",
+				"user_id", input.ID,
+				"requested_by", currentUser.ID,
+			)
 
-		err := svc.UpdatePost(ctx, &post)
-		if err != nil {
-			return nil, err
-		}
+			user, err := svc.GetUserByID(ctx, input.ID)
+			if err != nil {
+				logger.Error("Failed to get user", "user_id", input.ID, "error", err)
+				return nil, err
+			}
+			if user == nil {
+				return nil, huma.Error404NotFound("User not found")
+			}
 
-		return &UpdatePostOutput{Body: post}, nil
-	})
+			return &GetUserOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					User    types.User `json:"user" doc:"User data"`
+				}{
+					Message: "User retrieved successfully",
+					User:    *user,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Get user by ID"
+			o.Description = "Retrieve a specific user by their ID"
+		},
+	)
 
-	// DELETE /api/posts/{id}
-	huma.Register(api, huma.Operation{
-		OperationID: "delete-post",
-		Method:      http.MethodDelete,
-		Path:        "/api/posts/{id}",
-		Summary:     "Delete post",
-		Description: "Delete a post from the system",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *DeletePostInput) (*DeletePostOutput, error) {
-		err := svc.DeletePost(ctx, input.ID)
-		if err != nil {
-			return nil, err
-		}
+	// Create user
+	procedures.ProtectedProcedure.Post(api, "/api/users",
+		func(ctx context.Context,
+			input *CreateUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*CreateUserOutput, error) {
+			logger.Info("Creating user",
+				"name", input.Body.Name,
+				"email", input.Body.Email,
+				"created_by", currentUser.ID,
+			)
 
-		resp := &DeletePostOutput{}
-		resp.Body.Message = "Post deleted successfully"
-		resp.Body.ID = input.ID
+			user, err := svc.CreateUser(ctx, &input.Body)
+			if err != nil {
+				logger.Error("Failed to create user", "error", err)
+				return nil, err
+			}
 
-		return resp, nil
-	})
+			return &CreateUserOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					User    types.User `json:"user" doc:"Created user"`
+				}{
+					Message: "User created successfully",
+					User:    *user,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Create a new user"
+			o.Description = "Create a new user (requires authentication)"
+			o.DefaultStatus = http.StatusCreated
+		},
+	)
 
-	// GET /api/posts/user/{userId}
-	huma.Register(api, huma.Operation{
-		OperationID: "get-posts-by-user",
-		Method:      http.MethodGet,
-		Path:        "/api/posts/user/{userId}",
-		Summary:     "Get posts by user",
-		Description: "Retrieve all posts created by a specific user",
-		Tags:        []string{"Posts"},
-	}, func(ctx context.Context, input *GetPostsByUserInput) (*GetPostsByUserOutput, error) {
-		posts, err := svc.GetPostsByUserID(ctx, input.UserID)
-		if err != nil {
-			return nil, err
-		}
+	// Update user
+	procedures.ProtectedProcedure.Put(api, "/api/users/{id}",
+		func(ctx context.Context,
+			input *UpdateUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*UpdateUserOutput, error) {
+			logger.Info("Updating user",
+				"user_id", input.ID,
+				"updated_by", currentUser.ID,
+			)
 
-		return &GetPostsByUserOutput{Body: posts}, nil
-	})
+			user, err := svc.UpdateUser(ctx, input.ID, &input.Body)
+			if err != nil {
+				logger.Error("Failed to update user", "user_id", input.ID, "error", err)
+				return nil, err
+			}
+
+			return &UpdateUserOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					User    types.User `json:"user" doc:"Updated user"`
+				}{
+					Message: "User updated successfully",
+					User:    *user,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Update user"
+			o.Description = "Update an existing user's information"
+		},
+	)
+
+	// Delete user
+	procedures.ProtectedProcedure.Delete(api, "/api/users/{id}",
+		func(ctx context.Context,
+			input *DeleteUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*DeleteUserOutput, error) {
+			logger.Info("Deleting user",
+				"user_id", input.ID,
+				"deleted_by", currentUser.ID,
+			)
+
+			err := svc.DeleteUser(ctx, input.ID)
+			if err != nil {
+				logger.Error("Failed to delete user", "user_id", input.ID, "error", err)
+				return nil, err
+			}
+
+			return &DeleteUserOutput{
+				Body: struct {
+					Message string `json:"message" example:"User deleted successfully" doc:"Success message"`
+					ID      int    `json:"id" example:"1" doc:"Deleted user ID"`
+				}{
+					Message: "User deleted successfully",
+					ID:      input.ID,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Users", "Protected"}
+			o.Summary = "Delete user"
+			o.Description = "Delete a user from the system"
+		},
+	)
+
+	// ========================================================================
+	// POST ROUTES
+	// ========================================================================
+
+	// List posts with advanced filtering
+	procedures.ListProcedure.Get(api, "/api/posts",
+		func(ctx context.Context,
+			input *struct{},
+			logger *slog.Logger,
+			currentUser *types.User,
+			pagination *procedures.PaginationParams,
+			sort *procedures.SortParams,
+			filter *procedures.FilterParams,
+		) (*GetPostsOutput, error) {
+			logger.Info("Listing posts",
+				"page", pagination.Page,
+				"sort_by", sort.SortBy,
+				"search", filter.Search,
+				"user_id", currentUser.ID,
+			)
+
+			// Use service layer for business logic
+			posts, err := svc.GetPosts(ctx)
+			if err != nil {
+				logger.Error("Failed to get posts", "error", err)
+				return nil, err
+			}
+
+			return &GetPostsOutput{
+				Body: struct {
+					Posts      []types.Post                     `json:"posts" doc:"List of posts"`
+					Pagination *procedures.PaginationParams    `json:"pagination" doc:"Pagination info"`
+					Sort       *procedures.SortParams          `json:"Sort parameters"`
+					Filters    *procedures.FilterParams        `json:"filters" doc:"Applied filters"`
+					Total      int                             `json:"total" doc:"Total count"`
+					Message    string                          `json:"message" doc:"Success message"`
+				}{
+					Posts:      posts,
+					Pagination: pagination,
+					Sort:       sort,
+					Filters:    filter,
+					Total:      len(posts),
+					Message:    fmt.Sprintf("Retrieved %d posts", len(posts)),
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "List posts with advanced filtering"
+			o.Description = "Get paginated list of posts with sorting and filtering capabilities"
+		},
+	)
+
+	// Get post by ID
+	procedures.ProtectedProcedure.Get(api, "/api/posts/{id}",
+		func(ctx context.Context,
+			input *GetPostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*GetPostOutput, error) {
+			logger.Info("Getting post by ID",
+				"post_id", input.ID,
+				"requested_by", currentUser.ID,
+			)
+
+			post, err := svc.GetPostByID(ctx, input.ID)
+			if err != nil {
+				logger.Error("Failed to get post", "post_id", input.ID, "error", err)
+				return nil, err
+			}
+			if post == nil {
+				return nil, huma.Error404NotFound("Post not found")
+			}
+
+			return &GetPostOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					Post    types.Post `json:"post" doc:"Post data"`
+				}{
+					Message: "Post retrieved successfully",
+					Post:    *post,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Get post by ID"
+			o.Description = "Retrieve a specific post by its ID"
+		},
+	)
+
+	// Create post
+	procedures.ProtectedProcedure.Post(api, "/api/posts",
+		func(ctx context.Context,
+			input *CreatePostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*CreatePostOutput, error) {
+			logger.Info("Creating post",
+				"title", input.Body.Title,
+				"author_id", currentUser.ID,
+			)
+
+			post, err := svc.CreatePost(ctx, &input.Body)
+			if err != nil {
+				logger.Error("Failed to create post", "error", err)
+				return nil, err
+			}
+
+			return &CreatePostOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					Post    types.Post `json:"post" doc:"Created post"`
+				}{
+					Message: "Post created successfully",
+					Post:    *post,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Create a new post"
+			o.Description = "Create a new blog post (requires authentication)"
+			o.DefaultStatus = http.StatusCreated
+		},
+	)
+
+	// Update post
+	procedures.ProtectedProcedure.Put(api, "/api/posts/{id}",
+		func(ctx context.Context,
+			input *UpdatePostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*UpdatePostOutput, error) {
+			logger.Info("Updating post",
+				"post_id", input.ID,
+				"updated_by", currentUser.ID,
+			)
+
+			// Use service layer for update
+			post := types.Post{
+				ID:        input.ID,
+				Title:     input.Body.Title,
+				Content:   input.Body.Content,
+				UserID:    input.Body.UserID,
+				Published: input.Body.Published,
+			}
+
+			err := svc.UpdatePost(ctx, &post)
+			if err != nil {
+				logger.Error("Failed to update post", "post_id", input.ID, "error", err)
+				return nil, err
+			}
+
+			return &UpdatePostOutput{
+				Body: struct {
+					Message string     `json:"message" doc:"Success message"`
+					Post    types.Post `json:"post" doc:"Updated post"`
+				}{
+					Message: "Post updated successfully",
+					Post:    post,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Update post"
+			o.Description = "Update an existing post's information"
+		},
+	)
+
+	// Delete post
+	procedures.ProtectedProcedure.Delete(api, "/api/posts/{id}",
+		func(ctx context.Context,
+			input *DeletePostInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*DeletePostOutput, error) {
+			logger.Info("Deleting post",
+				"post_id", input.ID,
+				"deleted_by", currentUser.ID,
+			)
+
+			err := svc.DeletePost(ctx, input.ID)
+			if err != nil {
+				logger.Error("Failed to delete post", "post_id", input.ID, "error", err)
+				return nil, err
+			}
+
+			return &DeletePostOutput{
+				Body: struct {
+					Message string `json:"message" example:"Post deleted successfully" doc:"Success message"`
+					ID      int    `json:"id" example:"1" doc:"Deleted post ID"`
+				}{
+					Message: "Post deleted successfully",
+					ID:      input.ID,
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Delete post"
+			o.Description = "Delete a post from the system"
+		},
+	)
+
+	// Get posts by user
+	procedures.ProtectedProcedure.Get(api, "/api/posts/user/{userId}",
+		func(ctx context.Context,
+			input *GetPostsByUserInput,
+			logger *slog.Logger,
+			currentUser *types.User,
+		) (*GetPostsByUserOutput, error) {
+			logger.Info("Getting posts by user",
+				"target_user_id", input.UserID,
+				"requested_by", currentUser.ID,
+			)
+
+			posts, err := svc.GetPostsByUserID(ctx, input.UserID)
+			if err != nil {
+				logger.Error("Failed to get posts by user", "user_id", input.UserID, "error", err)
+				return nil, err
+			}
+
+			return &GetPostsByUserOutput{
+				Body: struct {
+					Posts   []types.Post `json:"posts" doc:"List of posts by user"`
+					Message string       `json:"message" doc:"Success message"`
+				}{
+					Posts:   posts,
+					Message: fmt.Sprintf("Retrieved %d posts for user %d", len(posts), input.UserID),
+				},
+			}, nil
+		},
+		func(o *huma.Operation) {
+			o.Tags = []string{"Posts", "Protected"}
+			o.Summary = "Get posts by user"
+			o.Description = "Retrieve all posts created by a specific user"
+		},
+	)
 }

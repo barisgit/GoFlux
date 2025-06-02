@@ -1,4 +1,4 @@
-package base
+package features
 
 import (
 	"context"

@@ -204,8 +204,8 @@ func (b *BuildOrchestrator) installDependencies() error {
 func (b *BuildOrchestrator) generateTypes() error {
 	b.log("🔧 Generating TypeScript types from Go...", "\x1b[36m")
 
-	// First, try to generate OpenAPI spec if it doesn't exist
-	if err := b.ensureOpenAPISpec(); err != nil {
+	// Always generate a new OpenAPI spec
+	if err := b.generateOpenAPIDirectly(); err != nil {
 		b.log("⚠️  Warning: Could not generate OpenAPI spec", "\x1b[33m")
 		if b.debug {
 			b.log(fmt.Sprintf("OpenAPI generation error: %v", err), "\x1b[31m")
@@ -548,31 +548,6 @@ func (b *BuildOrchestrator) logBuildSuccess() {
 	fmt.Println()
 	b.log(fmt.Sprintf("🚀 Run with: ./%s", binaryPath), "\x1b[33m")
 	b.log(fmt.Sprintf("🌐 Then visit: http://localhost:%d", b.config.Port), "\x1b[33m")
-}
-
-func (b *BuildOrchestrator) ensureOpenAPISpec() error {
-	b.log("📋 Checking for OpenAPI specification...", "\x1b[36m")
-
-	// Check if OpenAPI spec already exists in common locations
-	possiblePaths := []string{
-		"openapi.json",
-		"build/openapi.json",
-		"docs/openapi.json",
-		"api/openapi.json",
-	}
-
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			b.log("✅ Found existing OpenAPI spec at "+path, "\x1b[32m")
-			fmt.Println()
-			return nil
-		}
-	}
-
-	// No existing spec found, try to generate one directly
-	b.log("📋 No OpenAPI spec found, generating directly...", "\x1b[36m")
-
-	return b.generateOpenAPIDirectly()
 }
 
 func (b *BuildOrchestrator) generateOpenAPIDirectly() error {

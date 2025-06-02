@@ -2,5 +2,5 @@
  * {{.Description}}
  */{{end}}
 async ({{.ParameterSignature}}): Promise<AxiosResponse<{{.ResponseType}}>> => {
-{{if .HasBodyData}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`, {{.DataParameter}}){{else}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`){{end}}
+{{if .HasBodyData}}{{if .HasQueryParams}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`, {{.DataParameter}}, { params }){{else}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`, {{.DataParameter}}){{end}}{{else}}{{if .HasQueryParams}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`, { params }){{else}}  return apiClient.{{.MethodLower}}(`{{.RequestPath}}`){{end}}{{end}}
 } 

@@ -1,26 +1,51 @@
 {{if .Description}}/**
- * {{.Description}}{{if .HasIDParam}}{{if .HasBodyData}}
+ * {{.Description}}{{if .HasIDParam}}{{if .HasBodyData}}{{if .HasQueryParams}}
  * @param {Object} params - Parameters object
  * @param {number} params.id - Resource ID
- * @param {Object} params.data - Request data{{else}}
+ * @param {Object} params.data - Request data
+ * @param {Object} params.params - Query parameters{{else}}
  * @param {Object} params - Parameters object
- * @param {number} params.id - Resource ID{{end}}{{else}}{{if .HasBodyData}}
+ * @param {number} params.id - Resource ID
+ * @param {Object} params.data - Request data{{end}}{{else}}{{if .HasQueryParams}}
  * @param {Object} params - Parameters object
- * @param {Object} params.data - Request data{{end}}{{end}}
+ * @param {number} params.id - Resource ID
+ * @param {Object} params.params - Query parameters{{else}}
+ * @param {Object} params - Parameters object
+ * @param {number} params.id - Resource ID{{end}}{{end}}{{else}}{{if .HasBodyData}}{{if .HasQueryParams}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.data - Request data
+ * @param {Object} params.params - Query parameters{{else}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.data - Request data{{end}}{{else}}{{if .HasQueryParams}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.params - Query parameters{{end}}{{end}}{{end}}
  * @returns {Promise<{success: boolean, data?: any, error?: any}>} API response
- */{{else}}/**{{if .HasIDParam}}{{if .HasBodyData}}
+ */{{else}}/**{{if .HasIDParam}}{{if .HasBodyData}}{{if .HasQueryParams}}
  * @param {Object} params - Parameters object
  * @param {number} params.id - Resource ID
- * @param {Object} params.data - Request data{{else}}
+ * @param {Object} params.data - Request data
+ * @param {Object} params.params - Query parameters{{else}}
  * @param {Object} params - Parameters object
- * @param {number} params.id - Resource ID{{end}}{{else}}{{if .HasBodyData}}
+ * @param {number} params.id - Resource ID
+ * @param {Object} params.data - Request data{{end}}{{else}}{{if .HasQueryParams}}
  * @param {Object} params - Parameters object
- * @param {Object} params.data - Request data{{end}}{{end}}
+ * @param {number} params.id - Resource ID
+ * @param {Object} params.params - Query parameters{{else}}
+ * @param {Object} params - Parameters object
+ * @param {number} params.id - Resource ID{{end}}{{end}}{{else}}{{if .HasBodyData}}{{if .HasQueryParams}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.data - Request data
+ * @param {Object} params.params - Query parameters{{else}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.data - Request data{{end}}{{else}}{{if .HasQueryParams}}
+ * @param {Object} params - Parameters object
+ * @param {Object} params.params - Query parameters{{end}}{{end}}{{end}}
  * @returns {Promise<{success: boolean, data?: any, error?: any}>} API response
  */{{end}}
 async ({{.ParameterSignatureJS}}) => {
-{{if .HasBodyData}}  return request(`{{.RequestPath}}`, {
+{{if .HasQueryParams}}  const queryString = params ? buildQueryString(params) : '';
+{{end}}{{if .HasBodyData}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, {
     method: '{{.Method}}',
-    body: JSON.stringify({{.DataParameter}}),
-  }){{else}}{{if eq .Method "GET"}}  return request(`{{.RequestPath}}`){{else}}  return request(`{{.RequestPath}}`, { method: '{{.Method}}' }){{end}}{{end}}
+    body: JSON.stringify(data),
+  }){{else}}{{if eq .Method "GET"}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`){{else}}  return request(`{{.RequestPath}}{{if .HasQueryParams}}${queryString}{{end}}`, { method: '{{.Method}}' }){{end}}{{end}}
 } 

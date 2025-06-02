@@ -7,50 +7,69 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
+	"syscall"
 )
 
-func (o *DevOrchestrator) stopBackendProcessUnsafe() {
-	if o.backendProcess == nil || o.backendProcess.Process == nil {
-		return
+// setupProcessGroup sets up process group for Windows systems
+func (o *DevOrchestrator) setupProcessGroup(cmd *exec.Cmd) {
+	// Windows doesn't have process groups like Unix, but we can set CREATE_NEW_PROCESS_GROUP
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
 	}
+}
 
-	pid := o.backendProcess.Process.Pid
-	o.log(fmt.Sprintf("🛑 Stopping backend (PID: %d)...", pid), "\x1b[34m")
+// shutdownProcesses handles graceful shutdown of frontend and other processes on Windows
+func (o *DevOrchestrator) shutdownProcesses() {
+	done := make(chan bool, len(o.processes))
 
-	// Wait up to 3 seconds for process to exit
-	done := make(chan error, 1)
-	go func() {
-		done <- o.backendProcess.Wait()
-	}()
+	// Try graceful shutdown of all processes
+	for _, processInfo := range o.processes {
+		if processInfo.Process != nil && processInfo.Process.Process != nil {
+			o.log(fmt.Sprintf("🛑 Stopping %s (PID: %d)...", processInfo.Name, processInfo.Process.Process.Pid), processInfo.Color)
 
-	select {
-	case err := <-done:
-		if err != nil {
-			o.log("⚠️  Backend exited with error", "\x1b[33m")
+			go func(proc *exec.Cmd, name string, pid int) {
+				defer func() { done <- true }()
+
+				// Wait for graceful shutdown
+				gracefulDone := make(chan error, 1)
+				go func() {
+					gracefulDone <- proc.Wait()
+				}()
+
+				select {
+				case err := <-gracefulDone:
+					if err != nil {
+						o.log(fmt.Sprintf("⚠️  %s exited with error: %v", name, err), "\x1b[33m")
+					} else {
+						o.log(fmt.Sprintf("✅ %s stopped gracefully", name), "\x1b[32m")
+					}
+				case <-o.ctx.Done():
+					// Context cancelled - force kill using taskkill
+					o.log(fmt.Sprintf("💀 Force killing %s...", name), "\x1b[31m")
+					killCmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
+					killCmd.Run()
+				}
+			}(processInfo.Process, processInfo.Name, processInfo.Process.Process.Pid)
 		} else {
-			o.log("✅ Backend stopped gracefully", "\x1b[32m")
+			done <- true // No process to stop
 		}
-	case <-time.After(3 * time.Second):
-		o.log("💀 Force killing backend (timeout)...", "\x1b[31m")
-		o.backendProcess.Process.Kill()
 	}
 
-	o.backendProcess = nil
+	// Wait for all processes to finish
+	for i := 0; i < len(o.processes); i++ {
+		select {
+		case <-done:
+			// Process finished
+		case <-o.ctx.Done():
+			// Context cancelled, stop waiting
+			return
+		}
+	}
 }
 
-func (o *DevOrchestrator) killProcessGroup(pid int) error {
-	// On Windows, use taskkill to terminate process
-	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
-	return cmd.Run()
-}
-
-func (o *DevOrchestrator) forceKillProcessGroup(pid int) error {
-	// On Windows, force kill is the same as regular kill
-	return o.killProcessGroup(pid)
-}
-
-func (o *DevOrchestrator) forceKillPortProcesses() {
+// forceKillPortProcesses kills any processes using the configured ports on Windows
+func (pm *ProcessManager) forceKillPortProcesses() {
+	o := pm.orchestrator
 	ports := []int{o.config.Port, o.frontendPort, o.backendPort}
 
 	for _, port := range ports {

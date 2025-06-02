@@ -7,6 +7,17 @@ export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
+function countRoutes(obj: any = api, count = 0): number {
+  for (const key in obj) {
+    if (typeof obj[key] === "function") {
+      count++;
+    } else if (typeof obj[key] === "object" && obj[key] !== null) {
+      count = countRoutes(obj[key], count);
+    }
+  }
+  return count;
+}
+
 function HomePage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -30,13 +41,13 @@ function HomePage() {
       if (!postsResult.success) {
         setError(postsResult.error.detail);
       } else {
-        setPosts(postsResult.data || []);
+        setPosts(postsResult.data.posts || []);
       }
 
       if (!usersResult.success) {
         setError(usersResult.error.detail);
       } else {
-        setUsers(usersResult.data || []);
+        setUsers(usersResult.data.users || []);
       }
     } catch (err) {
       setError("Failed to load data");
@@ -167,7 +178,9 @@ function HomePage() {
           <div className="mt-1 text-sm text-gray-500">Type-safe calls</div>
         </div>
         <div className="p-6 text-center bg-white border border-gray-100 shadow-lg rounded-xl">
-          <div className="mb-2 text-4xl font-bold text-purple-600">7</div>
+          <div className="mb-2 text-4xl font-bold text-purple-600">
+            {countRoutes()}
+          </div>
           <div className="font-medium text-gray-700">API Routes</div>
           <div className="mt-1 text-sm text-gray-500">Auto-discovered</div>
         </div>

@@ -5,6 +5,81 @@
 
 {{if .UsedTypes}}import type { {{join .UsedTypes ", "}} } from '{{.TypesImport}}'{{end}}
 
+{{if .RequiresAuth}}// Enhanced authentication state management with security-first approach
+let authToken: string | null = null
+
+// Authentication helper functions with enhanced security
+export const auth = {
+  setToken: (token: string, useSecureCookie = false) => {
+    authToken = token
+    
+    if (useSecureCookie && typeof document !== 'undefined') {
+      // Use secure HttpOnly-like cookie (not actually HttpOnly from client side, but secure)
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+      document.cookie = `auth_token=${token}; expires=${expires.toUTCString()}; path=/; secure; samesite=strict`
+    }
+    // Note: For true HttpOnly cookies, your backend needs to set them after login
+    // This client-side approach is a fallback for development/simple setups
+  },
+  
+  getToken: (): string | null => {
+    // Memory first (most secure - lost on refresh)
+    if (authToken) return authToken
+    
+    // Fallback to cookie if available
+    if (typeof document !== 'undefined') {
+      const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('auth_token='))
+        ?.split('=')[1]
+      
+      if (cookieValue) {
+        authToken = cookieValue // Cache in memory
+        return cookieValue
+      }
+    }
+    
+    return null
+  },
+  
+  clearToken: () => {
+    authToken = null
+    if (typeof document !== 'undefined') {
+      document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; secure; samesite=strict'
+    }
+  },
+  
+  isAuthenticated: (): boolean => {
+    return !!auth.getToken()
+  },
+  
+  // Method to check if we can handle a route that requires auth
+  canAccessRoute: (requiresAuth: boolean): boolean => {
+    if (!requiresAuth) return true
+    return auth.isAuthenticated()
+  }
+}
+
+// Authentication error class for better error handling
+export class AuthenticationError extends Error {
+  constructor(message: string, public requiresAuth: boolean = true) {
+    super(message)
+    this.name = 'AuthenticationError'
+  }
+}
+
+{{end}}function buildQueryString(params?: Record<string, any>): string {
+  if (!params) return '';
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      searchParams.append(key, String(value));
+    }
+  });
+  const queryString = searchParams.toString();
+  return queryString ? '?' + queryString : '';
+}
+
 export interface HumaErrorDetail {
   message: string
   location: string
@@ -23,7 +98,51 @@ export type ApiResult<T> =
   | { success: true; data: T }
   | { success: false; error: HumaError; data: T }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResult<T>> {
+{{if .RequiresAuth}}// Enhanced request function with route-specific authentication
+async function request<T>(path: string, options: RequestInit = {}, requiresAuth = false, authType = 'Bearer'): Promise<ApiResult<T>> {
+  try {
+    // Check authentication before making request
+    if (requiresAuth && !auth.isAuthenticated()) {
+      return {
+        success: false,
+        error: {
+          title: 'Authentication Required',
+          status: 401,
+          detail: 'This endpoint requires authentication. Please log in first.'
+        },
+        data: {} as T
+      }
+    }
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    }
+    
+    // Add authentication token only for routes that need it
+    if (requiresAuth) {
+      const token = auth.getToken()
+      if (token) {
+        switch (authType) {
+          case 'Bearer':
+            headers['Authorization'] = `Bearer ${token}`
+            break
+          case 'Basic':
+            headers['Authorization'] = `Basic ${token}`
+            break
+          case 'ApiKey':
+            headers['X-API-Key'] = token
+            break
+          default:
+            headers['Authorization'] = `${authType} ${token}`
+        }
+      }
+    }
+
+    const response = await fetch(`/api${path}`, {
+      headers,
+      ...options,
+    }){{else}}async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResult<T>> {
   try {
     const response = await fetch(`/api${path}`, {
       headers: {
@@ -31,7 +150,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<ApiR
         ...options.headers,
       },
       ...options,
-    })
+    }){{end}}
 
     if (!response.ok) {
       try {
