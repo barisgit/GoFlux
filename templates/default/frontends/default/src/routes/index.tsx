@@ -213,8 +213,8 @@ function HomePage() {
               </p>
               <p className="text-sm text-gray-500">
                 By{" "}
-                <span className="font-medium">{getUserName(post.user_id)}</span>{" "}
-                • {new Date(post.created_at).toLocaleDateString()}
+                <span className="font-medium">{getUserName(post.userId)}</span>{" "}
+                • {new Date(post.createdAt).toLocaleDateString()}
               </p>
             </div>
           ))}

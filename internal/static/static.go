@@ -52,8 +52,8 @@ func ServeStaticFile(assets embed.FS, config StaticConfig, path string) StaticRe
 	}
 
 	// Extract and clean the path
-	cleanPath := strings.TrimPrefix(path, "/")
-	if cleanPath == "" {
+	cleanPath := strings.TrimPrefix(filepath.Clean(path), "/")
+	if cleanPath == "" || cleanPath == "." {
 		cleanPath = "index.html"
 	}
 
@@ -72,7 +72,7 @@ func ServeStaticFile(assets embed.FS, config StaticConfig, path string) StaticRe
 	// Then if the user has specified a different assets directory, we need to move them up again
 	if config.AssetsDir != "" {
 		var err error
-		assetsFS, err = fs.Sub(assets, config.AssetsDir)
+		assetsFS, err = fs.Sub(assets, filepath.Clean(config.AssetsDir))
 		if err != nil {
 			return StaticResponse{StatusCode: 404, NotFound: true}
 		}

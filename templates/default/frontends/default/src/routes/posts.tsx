@@ -57,7 +57,7 @@ function PostsPage() {
     const result = await api.posts.create({
       ...newPost,
       published: false,
-      user_id: newPost.author_id,
+      userId: newPost.author_id,
     });
     if (!result.success) {
       setError(result.error.detail);
@@ -181,7 +181,7 @@ function PostsPage() {
                 </h2>
                 <p className="mb-4 text-gray-700">{post.content}</p>
                 <div className="flex items-center text-sm text-gray-500">
-                  <span>By {getUserName(post.user_id)}</span>
+                  <span>By {getUserName(post.userId)}</span>
                   <span className="mx-2">•</span>
                 </div>
               </div>

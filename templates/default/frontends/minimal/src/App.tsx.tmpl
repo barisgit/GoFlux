@@ -1,25 +1,24 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from "react";
+import { api } from "./lib/api-client";
 
 function App() {
-  const [message, setMessage] = useState<string>('')
+  const [message, setMessage] = useState<string>("");
 
   useEffect(() => {
-    // Test API connection
-    fetch('/api/health')
-      .then(res => res.json())
-      .then(data => setMessage(data.message || 'Connected to {{.ProjectName}} API'))
-      .catch(() => setMessage('Welcome to {{.ProjectName}}'))
-  }, [])
+    api.info.list().then((res) => {
+      setMessage(res.data.message);
+    });
+  }, []);
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'system-ui' }}>
+    <div>
       <h1>{{.ProjectName}}</h1>
       <p>{message}</p>
       <p>
         Edit <code>src/App.tsx</code> to get started.
       </p>
     </div>
-  )
+  );
 }
 
-export default App 
+export default App;

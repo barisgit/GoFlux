@@ -14,6 +14,7 @@ import (
 	"github.com/barisgit/goflux/config"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -22,6 +23,38 @@ import (
 type FrontendSelection struct {
 	FrontendConfig  config.FrontendConfig
 	APIClientConfig *config.APIClientConfig
+}
+
+// isNonInteractive checks if we should avoid interactive prompts
+func isNonInteractive(cmd *cobra.Command) bool {
+	// Check if --non-interactive flag is explicitly set
+	if nonInteractive, _ := cmd.Flags().GetBool("non-interactive"); nonInteractive {
+		return true
+	}
+
+	// Check for explicit non-interactive environment variable
+	if os.Getenv("NO_INTERACTIVE") != "" {
+		return true
+	}
+
+	// Check for clear CI environments (more conservative)
+	if os.Getenv("CI") == "true" ||
+		os.Getenv("GITHUB_ACTIONS") == "true" ||
+		os.Getenv("GITLAB_CI") == "true" ||
+		os.Getenv("JENKINS_URL") != "" {
+		return true
+	}
+
+	// Check if stdin is not a terminal AND we're in a CI-like environment
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		// Only treat as non-interactive if we're clearly in a CI environment
+		// or if there's no controlling terminal at all
+		if os.Getenv("CI") != "" || os.Getenv("TERM") == "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func NewCmd() *cobra.Command {
@@ -34,6 +67,7 @@ func NewCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("debug", false, "Enable debug logging")
+	cmd.Flags().Bool("non-interactive", false, "Run in non-interactive mode (require all flags)")
 	cmd.Flags().String("template", "default", "Backend template name")
 	cmd.Flags().String("frontend", "", "Frontend template name")
 	cmd.Flags().String("frontend-type", "", "Frontend type (template, script, custom)")
@@ -54,12 +88,35 @@ func runNew(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		projectName = args[0]
 	} else {
+		if isNonInteractive(cmd) {
+			return fmt.Errorf("project name is required in non-interactive mode")
+		}
 		prompt := &survey.Input{
 			Message: "Project name:",
 			Default: "my-flux-app",
 		}
 		if err := survey.AskOne(prompt, &projectName); err != nil {
 			return err
+		}
+	}
+
+	// In non-interactive mode, check if we have all required flags
+	if isNonInteractive(cmd) {
+		missingFlags := []string{}
+
+		if frontendName == "" {
+			missingFlags = append(missingFlags, "--frontend")
+		}
+		if frontendType == "" {
+			missingFlags = append(missingFlags, "--frontend-type")
+		}
+		if router == "" {
+			missingFlags = append(missingFlags, "--router")
+		}
+
+		if len(missingFlags) > 0 {
+			return fmt.Errorf("non-interactive mode requires all flags. Missing: %s\n\nExample: flux new %s --template default --frontend minimal --frontend-type template --router chi",
+				strings.Join(missingFlags, ", "), projectName)
 		}
 	}
 
@@ -70,8 +127,14 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize frontend manager: %w", err)
 	}
 
-	// Backend template selection
-	if templateName == "default" {
+	// Backend template selection - only prompt if we need to select a template interactively
+	// Don't prompt if:
+	// 1. We're in non-interactive mode, OR
+	// 2. Template is not "default" (user specified a specific template), OR
+	// 3. We have all required flags (frontend and router are specified)
+	allFlagsProvided := frontendName != "" && frontendType != "" && router != ""
+
+	if templateName == "default" && !isNonInteractive(cmd) && !allFlagsProvided {
 		// Interactive template selection
 		availableTemplates := unifiedManager.GetAvailableTemplates()
 		if len(availableTemplates) > 0 {
@@ -132,10 +195,15 @@ func runNew(cmd *cobra.Command, args []string) error {
 		// Use command line flags
 		frontendConfig = createFrontendConfigFromFlags(frontendType, frontendName, unifiedManager)
 	} else {
-		// Interactive selection
-		frontendConfig, err = selectFrontendInteractive(unifiedManager)
-		if err != nil {
-			return err
+		if isNonInteractive(cmd) {
+			// In non-interactive mode, use defaults if not specified
+			frontendConfig = createFrontendConfigFromFlags("template", "minimal", unifiedManager)
+		} else {
+			// Interactive selection
+			frontendConfig, err = selectFrontendInteractive(unifiedManager)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -164,51 +232,60 @@ func runNew(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Define router options with clean values and descriptions
-		type RouterOption struct {
-			Value       string
-			Description string
-		}
-
-		var routerMap = map[string]RouterOption{
-			"chi":      {Value: "chi", Description: "Chi (Recommended)"},
-			"fiber":    {Value: "fiber", Description: "Fiber"},
-			"gin":      {Value: "gin", Description: "Gin"},
-			"echo":     {Value: "echo", Description: "Echo"},
-			"gorilla":  {Value: "gorilla", Description: "Gorilla Mux"},
-			"mux":      {Value: "mux", Description: "Go 1.22+ ServeMux"},
-			"fasthttp": {Value: "fasthttp", Description: "FastHTTP"},
-		}
-
-		// Create options list with only supported routers
-		var routerOptions []string
-		var routerLookup = make(map[string]string) // description -> value
-
-		for _, supportedRouter := range template.Backend.SupportedRouters {
-			if option, exists := routerMap[supportedRouter]; exists {
-				routerOptions = append(routerOptions, option.Description)
-				routerLookup[option.Description] = option.Value
+		if isNonInteractive(cmd) {
+			// Use first supported router as default in non-interactive mode
+			if len(template.Backend.SupportedRouters) > 0 {
+				router = template.Backend.SupportedRouters[0]
 			} else {
-				// Fallback for unknown routers
-				routerOptions = append(routerOptions, supportedRouter)
-				routerLookup[supportedRouter] = supportedRouter
+				router = "chi" // fallback
 			}
-		}
+		} else {
+			// Define router options with clean values and descriptions
+			type RouterOption struct {
+				Value       string
+				Description string
+			}
 
-		var selectedDescription string
-		routerPrompt := &survey.Select{
-			Message: "Choose backend router:",
-			Options: routerOptions,
-			Default: routerOptions[0], // First supported router
-		}
-		if err := survey.AskOne(routerPrompt, &selectedDescription); err != nil {
-			return err
-		}
+			var routerMap = map[string]RouterOption{
+				"chi":      {Value: "chi", Description: "Chi (Recommended)"},
+				"fiber":    {Value: "fiber", Description: "Fiber"},
+				"gin":      {Value: "gin", Description: "Gin"},
+				"echo":     {Value: "echo", Description: "Echo"},
+				"gorilla":  {Value: "gorilla", Description: "Gorilla Mux"},
+				"mux":      {Value: "mux", Description: "Go 1.22+ ServeMux"},
+				"fasthttp": {Value: "fasthttp", Description: "FastHTTP"},
+			}
 
-		// Get the clean router value
-		router = routerLookup[selectedDescription]
-		if router == "" {
-			router = selectedDescription // Fallback
+			// Create options list with only supported routers
+			var routerOptions []string
+			var routerLookup = make(map[string]string) // description -> value
+
+			for _, supportedRouter := range template.Backend.SupportedRouters {
+				if option, exists := routerMap[supportedRouter]; exists {
+					routerOptions = append(routerOptions, option.Description)
+					routerLookup[option.Description] = option.Value
+				} else {
+					// Fallback for unknown routers
+					routerOptions = append(routerOptions, supportedRouter)
+					routerLookup[supportedRouter] = supportedRouter
+				}
+			}
+
+			var selectedDescription string
+			routerPrompt := &survey.Select{
+				Message: "Choose backend router:",
+				Options: routerOptions,
+				Default: routerOptions[0], // First supported router
+			}
+			if err := survey.AskOne(routerPrompt, &selectedDescription); err != nil {
+				return err
+			}
+
+			// Get the clean router value
+			router = routerLookup[selectedDescription]
+			if router == "" {
+				router = selectedDescription // Fallback
+			}
 		}
 	}
 

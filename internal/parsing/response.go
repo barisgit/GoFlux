@@ -24,6 +24,16 @@ func (w *ResponseWriter) WriteOutput(api huma.API, ctx huma.Context, output inte
 		return nil
 	}
 
+	// Handle nil output
+	if output == nil {
+		status := operation.DefaultStatus
+		if status == 0 {
+			status = http.StatusOK
+		}
+		ctx.SetStatus(status)
+		return nil
+	}
+
 	outputValue := reflect.ValueOf(output)
 	if outputValue.Kind() == reflect.Pointer {
 		outputValue = outputValue.Elem()

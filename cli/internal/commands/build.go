@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/barisgit/goflux/cli/internal/frontend"
 	"github.com/barisgit/goflux/cli/internal/typegen/analyzer"
 	"github.com/barisgit/goflux/cli/internal/typegen/generator"
 	"github.com/barisgit/goflux/config"
@@ -154,37 +155,55 @@ func (b *BuildOrchestrator) installDependencies() error {
 	b.log("📦 Installing dependencies...", "\x1b[36m")
 
 	var wg sync.WaitGroup
-	errorChan := make(chan error, 2)
+	errorChan := make(chan error, 3)
 
 	// Install Go dependencies
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// First run go mod download
 		cmd := exec.Command("go", "mod", "download")
 		if err := cmd.Run(); err != nil {
-			errorChan <- fmt.Errorf("failed to install Go dependencies: %w", err)
+			errorChan <- fmt.Errorf("failed to download Go dependencies: %w", err)
+			return
+		}
+
+		// Then run go mod tidy to ensure consistency
+		cmd = exec.Command("go", "mod", "tidy")
+		if err := cmd.Run(); err != nil {
+			b.log("⚠️  Warning: Could not run go mod tidy", "\x1b[33m")
+			if b.debug {
+				b.log(fmt.Sprintf("go mod tidy error: %v", err), "\x1b[31m")
+			}
 		}
 	}()
 
-	// Install frontend dependencies
+	// Install frontend dependencies if package.json exists
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if _, err := os.Stat("frontend/package.json"); err == nil {
-			cmd := exec.Command("pnpm", "install", "--silent")
-			cmd.Dir = "frontend"
-			if err := cmd.Run(); err != nil {
-				// Fallback to npm if pnpm fails
-				cmd = exec.Command("npm", "install", "--silent")
-				cmd.Dir = "frontend"
+			// Check if node_modules exists and install if needed
+			frontendDir := "frontend"
+			if _, err := os.Stat(filepath.Join(frontendDir, "node_modules")); os.IsNotExist(err) {
+				b.log("📦 Installing frontend dependencies...", "\x1b[33m")
+
+				cmd := exec.Command("pnpm", "install", "--silent")
+				cmd.Dir = frontendDir
 				if err := cmd.Run(); err != nil {
-					errorChan <- fmt.Errorf("failed to install frontend dependencies: %w", err)
+					// Fallback to npm if pnpm fails
+					cmd = exec.Command("npm", "install", "--silent")
+					cmd.Dir = frontendDir
+					if err := cmd.Run(); err != nil {
+						errorChan <- fmt.Errorf("failed to install frontend dependencies: %w", err)
+						return
+					}
 				}
 			}
 		}
 	}()
 
-	// Wait for both installations
+	// Wait for all installations
 	go func() {
 		wg.Wait()
 		close(errorChan)
@@ -291,8 +310,39 @@ func (b *BuildOrchestrator) buildFrontend() error {
 
 	// Check if frontend exists
 	if _, err := os.Stat("frontend/package.json"); os.IsNotExist(err) {
-		b.log("⚠️  No frontend found, skipping frontend build", "\x1b[33m")
-		return nil
+		b.log("📦 Setting up frontend for the first time...", "\x1b[33m")
+
+		// Import frontend package for setup
+		frontendPath := "frontend"
+
+		// Use the unified frontend management system (same as dev command)
+		unifiedManager, err := frontend.NewUnifiedManager(b.config, b.debug)
+		if err != nil {
+			return fmt.Errorf("failed to create unified frontend manager: %w", err)
+		}
+
+		// Generate frontend using the unified system
+		if err := unifiedManager.GenerateFrontend(frontendPath); err != nil {
+			return fmt.Errorf("failed to setup frontend: %w", err)
+		}
+
+		// Install dependencies if package.json was created
+		packageJsonPath := filepath.Join(frontendPath, "package.json")
+		if _, err := os.Stat(packageJsonPath); err == nil {
+			b.log("📦 Installing frontend dependencies...", "\x1b[33m")
+
+			// Use pnpm install as the default
+			cmd := exec.Command("pnpm", "install")
+			cmd.Dir = frontendPath
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("failed to install frontend dependencies: %w", err)
+			}
+		}
+
+		b.log("✅ Frontend setup complete!", "\x1b[32m")
 	}
 
 	// Run the frontend build command

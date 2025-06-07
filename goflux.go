@@ -945,6 +945,11 @@ type StatusError struct {
 	Message string
 }
 
+// Error implements the error interface, returning the message
+func (e *StatusError) Error() string {
+	return e.Message
+}
+
 // NewStatusError creates a new StatusError with the given status, message, and errors
 func NewStatusError(status int, message string, errors ...error) *StatusError {
 	return &StatusError{
@@ -960,64 +965,64 @@ func (ctx *FluxContext) WriteStatusError(statusError *StatusError, errors ...err
 // 4xx
 
 // NewBadRequestError writes a 400 Bad Request response
-func (ctx *FluxContext) NewBadRequestError(message string, errors ...error) {
+func (ctx *FluxContext) WriteBadRequestError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusBadRequest, message, errors...)
 }
 
 // NewUnauthorizedError writes a 401 Unauthorized response
-func (ctx *FluxContext) NewUnauthorizedError(message string, errors ...error) {
+func (ctx *FluxContext) WriteUnauthorizedError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusUnauthorized, message, errors...)
 }
 
 // NewPaymentRequiredError writes a 402 Payment Required response
-func (ctx *FluxContext) NewPaymentRequiredError(message string, errors ...error) {
+func (ctx *FluxContext) WritePaymentRequiredError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusPaymentRequired, message, errors...)
 }
 
 // NewForbiddenError writes a 403 Forbidden response
-func (ctx *FluxContext) NewForbiddenError(message string, errors ...error) {
+func (ctx *FluxContext) WriteForbiddenError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusForbidden, message, errors...)
 }
 
 // NewNotFoundError writes a 404 Not Found response
-func (ctx *FluxContext) NewNotFoundError(message string, errors ...error) {
+func (ctx *FluxContext) WriteNotFoundError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusNotFound, message, errors...)
 }
 
 // NewMethodNotAllowedError writes a 405 Method Not Allowed response
-func (ctx *FluxContext) NewMethodNotAllowedError(message string, errors ...error) {
+func (ctx *FluxContext) WriteMethodNotAllowedError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusMethodNotAllowed, message, errors...)
 }
 
 // NewConflictError writes a 409 Conflict response
-func (ctx *FluxContext) NewConflictError(message string, errors ...error) {
+func (ctx *FluxContext) WriteConflictError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusConflict, message, errors...)
 }
 
 // NewTooManyRequestsError writes a 429 Too Many Requests response
-func (ctx *FluxContext) NewTooManyRequestsError(message string, errors ...error) {
+func (ctx *FluxContext) WriteTooManyRequestsError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusTooManyRequests, message, errors...)
 }
 
 // 5xx
 
 // NewInternalServerError writes a 500 Internal Server Error response
-func (ctx *FluxContext) NewInternalServerError(message string, errors ...error) {
+func (ctx *FluxContext) WriteInternalServerError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusInternalServerError, message, errors...)
 }
 
 // NewNotImplementedError writes a 501 Not Implemented response
-func (ctx *FluxContext) NewNotImplementedError(message string, errors ...error) {
+func (ctx *FluxContext) WriteNotImplementedError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusNotImplemented, message, errors...)
 }
 
 // NewBadGatewayError writes a 502 Bad Gateway response
-func (ctx *FluxContext) NewBadGatewayError(message string, errors ...error) {
+func (ctx *FluxContext) WriteBadGatewayError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusBadGateway, message, errors...)
 }
 
 // NewServiceUnavailableError writes a 503 Service Unavailable response
-func (ctx *FluxContext) NewServiceUnavailableError(message string, errors ...error) {
+func (ctx *FluxContext) WriteServiceUnavailableError(message string, errors ...error) {
 	ctx.WriteErr(http.StatusServiceUnavailable, message, errors...)
 }
 
