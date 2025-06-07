@@ -1,57 +1,29 @@
-.PHONY: help build dev-install dev-uninstall clean install test release-dry-run release tag
+.PHONY: help build dev-install dev-uninstall clean install test coverage cli-coverage e2e-test release-dry-run release tag status
 
 # Default target
 help:
 	@echo "🚀 GoFlux CLI Development"
 	@echo ""
-	@echo "Available targets:"
-	@echo "  dev-install   - Install in development mode (editable)"
-	@echo "  dev-uninstall - Remove development installation"
+	@echo "Build & Install:"
 	@echo "  build         - Build the flux binary"
+	@echo "  dev-install   - Install in development mode"
+	@echo "  dev-uninstall - Remove development installation"
+	@echo "  install       - Install to /usr/local/bin"
 	@echo "  clean         - Clean build artifacts"
-	@echo "  install       - Install to /usr/local/bin (production)"
-	@echo "  test          - Run tests"
-	@echo "  release-dry-run - Test release process without publishing"
-	@echo "  release       - Create and publish a new release"
-	@echo "  tag           - Create a new git tag (usage: make tag VERSION=v1.0.0)"
 	@echo ""
-	@echo "Development workflow:"
-	@echo "  1. make dev-install    # Install in dev mode"
-	@echo "  2. flux new myapp    # Use from anywhere"
-	@echo "  3. make dev-uninstall  # Clean up when done"
+	@echo "Testing:"
+	@echo "  test          - Run all tests"
+	@echo "  coverage      - Run framework tests with coverage report"
+	@echo "  cli-coverage  - Run CLI tests with coverage report"
+	@echo "  e2e-test      - Run end-to-end CLI tests"
 	@echo ""
-	@echo "Release workflow:"
-	@echo "  1. make release-dry-run  # Test the release"
-	@echo "  2. make tag VERSION=v1.0.0  # Create tag"
-	@echo "  3. git push origin v1.0.0   # Trigger release"
-
-# Development installation - creates a script that runs go run
-dev-install:
-	@echo "🔧 Installing GoFlux in development mode..."
-	@mkdir -p ~/bin
-	@echo '#!/bin/bash' > ~/bin/flux
-	@echo '# GoFlux Development Mode' >> ~/bin/flux
-	@echo 'GOFLUX_SOURCE="$(PWD)"' >> ~/bin/flux
-	@echo 'flux_WORK_DIR="$$(pwd)"' >> ~/bin/flux
-	@echo 'cd "$$GOFLUX_SOURCE/cli" && flux_WORK_DIR="$$flux_WORK_DIR" go run . "$$@"' >> ~/bin/flux
-	@chmod +x ~/bin/flux
+	@echo "Release:"
+	@echo "  release-dry-run - Test release process"
+	@echo "  tag VERSION=x   - Create git tag"
+	@echo "  release         - Publish release"
 	@echo ""
-	@echo "✅ GoFlux installed in development mode!"
-	@echo "📍 Location: ~/bin/flux"
-	@echo "📁 Source: $(PWD)/cli"
-	@echo ""
-	@echo "Add ~/bin to your PATH if not already there:"
-	@echo "  echo 'export PATH=\"\$$HOME/bin:\$$PATH\"' >> ~/.bashrc"
-	@echo "  echo 'export PATH=\"\$$HOME/bin:\$$PATH\"' >> ~/.zshrc"
-	@echo "  source ~/.bashrc  # or ~/.zshrc"
-	@echo ""
-	@echo "Now you can run 'flux' from anywhere!"
-
-# Remove development installation
-dev-uninstall:
-	@echo "🗑️  Removing development installation..."
-	@rm -f ~/bin/flux
-	@echo "✅ Development installation removed"
+	@echo "Utilities:"
+	@echo "  status        - Show installation status"
 
 # Build the binary
 build:
@@ -59,69 +31,115 @@ build:
 	@cd cli && go build -o ../flux .
 	@echo "✅ Built: ./flux"
 
-# Development mode - run with go run (local only)
-dev:
-	@cd cli && go run . $(ARGS)
+# Development installation
+dev-install:
+	@echo "🔧 Installing GoFlux in development mode..."
+	@mkdir -p ~/bin
+	@echo '#!/bin/bash' > ~/bin/flux
+	@echo 'GOFLUX_SOURCE="$(PWD)"' >> ~/bin/flux
+	@echo 'flux_WORK_DIR="$$(pwd)"' >> ~/bin/flux
+	@echo 'cd "$$GOFLUX_SOURCE/cli" && flux_WORK_DIR="$$flux_WORK_DIR" go run . "$$@"' >> ~/bin/flux
+	@chmod +x ~/bin/flux
+	@echo "✅ GoFlux installed in development mode at ~/bin/flux"
+	@echo "Add ~/bin to your PATH if needed:"
+	@echo "  export PATH=\"$$HOME/bin:$$PATH\""
 
-# Clean build artifacts
-clean:
-	@echo "🧹 Cleaning build artifacts..."
-	@rm -f flux
-	@rm -rf test-*
-	@echo "✅ Cleaned"
+# Remove development installation
+dev-uninstall:
+	@echo "🗑️  Removing development installation..."
+	@rm -f ~/bin/flux
+	@echo "✅ Development installation removed"
 
-# Install to system (production)
+# Install to system
 install: build
 	@echo "📦 Installing GoFlux CLI to /usr/local/bin..."
 	@sudo mv flux /usr/local/bin/
 	@echo "✅ Installed! Run 'flux --help' from anywhere"
 
-# Run tests
+# Clean build artifacts
+clean:
+	@echo "🧹 Cleaning build artifacts..."
+	@rm -f flux *.out *.html
+	@rm -f cli/coverage.out cli/coverage.html
+	@rm -rf test-* 
+	@echo "✅ Cleaned"
+
+# Run all tests
 test:
 	@echo "🧪 Running framework tests..."
-	@go test ./...
+	@go test $(shell go list ./... | grep -v -E 'templates|examples') -short
 	@echo "🧪 Running CLI tests..."
-	@cd cli && go test ./...
+	@cd cli && go test ./... -short
 
-# Quick test - create and test a project
-test-project: 
-	@echo "🧪 Testing project creation..."
-	@rm -rf test-project || true
-	@cd cli && go run . new test-project
-	@echo "✅ Project created successfully"
+# Run tests with coverage and open HTML report
+coverage:
+	@echo "📊 Generating framework coverage report..."
+	@go test -coverprofile=coverage.out $(shell go list ./... | grep -v -E 'templates|examples') -short
+	@echo ""
+	@echo "📈 Coverage Summary:"
+	@go tool cover -func=coverage.out | tail -1
+	@echo ""
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "✅ Coverage report generated: coverage.html"
+	@if command -v open >/dev/null 2>&1; then \
+		open coverage.html; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open coverage.html; \
+	else \
+		echo "Open coverage.html in your browser"; \
+	fi
 
-# Test the framework integration locally
-test-framework: dev-install
-	@echo "🧪 Testing GoFlux framework integration..."
-	@rm -rf test-framework-project || true
-	@flux new test-framework-project
-	@cd test-framework-project && \
-		echo "" >> go.mod && \
-		echo "replace github.com/barisgit/goflux => $(PWD)" >> go.mod && \
-		go mod tidy
+# Run CLI tests with coverage and open HTML report  
+cli-coverage:
+	@echo "📊 Generating CLI coverage report..."
+	@cd cli && go test -coverprofile=coverage.out ./... -short
+	@echo ""
+	@echo "📈 CLI Coverage Summary:"
+	@cd cli && go tool cover -func=coverage.out | tail -1
+	@echo ""
+	@cd cli && go tool cover -html=coverage.out -o coverage.html
+	@echo "✅ CLI coverage report generated: cli/coverage.html"
+	@if command -v open >/dev/null 2>&1; then \
+		open cli/coverage.html; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open cli/coverage.html; \
+	else \
+		echo "Open cli/coverage.html in your browser"; \
+	fi
 
-# Development workflow
-dev-workflow: clean test-project
-	@echo "🎉 Full development workflow complete!"
+# End-to-end tests
+e2e-test:
+	@echo "🧪 Running end-to-end CLI tests..."
+	@which flux > /dev/null || (echo "❌ flux binary not found. Run 'make dev-install' first." && exit 1)
+	@echo "ℹ️  Note: Advanced template tests require Docker for PostgreSQL"
+	@echo "ℹ️  If Docker tests fail, they will be skipped automatically"
+	@go test -v -run "TestE2E" ./e2e_test.go -timeout=10m
 
-# Show current installation status
+# Show installation status
 status:
 	@echo "📊 GoFlux Installation Status:"
-	@echo ""
 	@if [ -f ~/bin/flux ]; then \
 		echo "✅ Development mode: ~/bin/flux"; \
-		echo "   Source: $$(head -2 ~/bin/flux | tail -1 | cut -d' ' -f2)"; \
 	else \
 		echo "❌ Development mode: Not installed"; \
 	fi
-	@echo ""
 	@if command -v flux >/dev/null 2>&1; then \
 		echo "✅ System installation: $$(which flux)"; \
 	else \
 		echo "❌ System installation: Not found"; \
 	fi
 
-# Release management
+# Create git tag
+tag:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ VERSION required. Usage: make tag VERSION=v1.0.0"; \
+		exit 1; \
+	fi
+	@echo "🏷️  Creating tag $(VERSION)..."
+	@git tag $(VERSION)
+	@echo "✅ Tag $(VERSION) created. Push with: git push origin $(VERSION)"
+
+# Test release process
 release-dry-run:
 	@echo "🧪 Testing release process..."
 	@if ! command -v goreleaser >/dev/null 2>&1; then \
@@ -130,8 +148,9 @@ release-dry-run:
 		exit 1; \
 	fi
 	@goreleaser release --snapshot --clean
-	@echo "✅ Release dry run completed successfully"
+	@echo "✅ Release dry run completed"
 
+# Create and publish release
 release:
 	@echo "🚀 Creating release..."
 	@if ! command -v goreleaser >/dev/null 2>&1; then \
@@ -146,35 +165,4 @@ release:
 	@echo "Creating release for version: $(VERSION)"
 	@git tag $(VERSION)
 	@git push origin $(VERSION)
-	@echo "✅ Release $(VERSION) triggered"
-
-tag:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "❌ VERSION required. Usage: make tag VERSION=v1.0.0"; \
-		exit 1; \
-	fi
-	@echo "🏷️  Creating tag $(VERSION)..."
-	@git tag $(VERSION)
-	@echo "✅ Tag $(VERSION) created. Push with: git push origin $(VERSION)"
-
-# Install goreleaser for releases
-install-goreleaser:
-	@echo "📦 Installing goreleaser..."
-	@go install github.com/goreleaser/goreleaser@latest
-	@echo "✅ goreleaser installed"
-
-# Development helpers for CLI module
-cli-deps:
-	@echo "📦 Installing CLI dependencies..."
-	@cd cli && go mod tidy
-	@echo "✅ CLI dependencies updated"
-
-cli-test:
-	@echo "🧪 Running CLI tests only..."
-	@cd cli && go test ./...
-	@echo "✅ CLI tests complete"
-
-cli-build:
-	@echo "🔨 Building CLI binary only..."
-	@cd cli && go build -o flux .
-	@echo "✅ CLI binary built: cli/flux" 
+	@echo "✅ Release $(VERSION) triggered" 
