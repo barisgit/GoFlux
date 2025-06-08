@@ -135,6 +135,18 @@ tag:
 		echo "❌ VERSION required. Usage: make tag VERSION=v1.0.0"; \
 		exit 1; \
 	fi
+	@if [ "$$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then \
+		echo "❌ Must be on main branch to tag"; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "❌ Working directory not clean. Commit or stash changes first."; \
+		exit 1; \
+	fi
+	@if [ "$$(git rev-list --count origin/main..main)" -gt 0 ]; then \
+		echo "❌ Local main branch has unpushed commits"; \
+		exit 1; \
+	fi
 	@echo "🏷️  Creating tag $(VERSION)..."
 	@git tag $(VERSION)
 	@echo "✅ Tag $(VERSION) created. Push with: git push origin $(VERSION)"
@@ -162,7 +174,19 @@ release:
 		echo "❌ VERSION required. Usage: make release VERSION=v1.0.0"; \
 		exit 1; \
 	fi
+	@if [ "$$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then \
+		echo "❌ Must be on main branch to release"; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "❌ Working directory not clean. Commit or stash changes first."; \
+		exit 1; \
+	fi
+	@if [ "$$(git rev-list --count origin/main..main)" -gt 0 ]; then \
+		echo "❌ Local main branch has unpushed commits"; \
+		exit 1; \
+	fi
 	@echo "Creating release for version: $(VERSION)"
 	@git tag $(VERSION)
 	@git push origin $(VERSION)
-	@echo "✅ Release $(VERSION) triggered" 
+	@echo "✅ Release $(VERSION) triggered"
