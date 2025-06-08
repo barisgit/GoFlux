@@ -117,7 +117,7 @@ function ApiDemoPage() {
       title: newPost.title,
       content: newPost.content,
       published: true,
-      user_id: newPost.author_id,
+      userId: newPost.author_id,
     });
 
     if (!result.success) {
@@ -444,7 +444,7 @@ function ApiDemoPage() {
                   <div className="text-sm text-gray-600">{post.content}</div>
                   <div className="mt-1 text-xs text-gray-500">
                     By{" "}
-                    {users.find((u) => u.id === post.user_id)?.email ||
+                    {users.find((u) => u.id === post.userId)?.email ||
                       "Unknown"}
                   </div>
                 </div>

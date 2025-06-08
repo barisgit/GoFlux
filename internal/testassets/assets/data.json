@@ -1,0 +1,14 @@
+{
+  "name": "Test Data",
+  "version": "1.0.0",
+  "description": "Test JSON file for static serving",
+  "features": [
+    "static file serving",
+    "content type detection",
+    "cache control headers"
+  ],
+  "config": {
+    "enabled": true,
+    "timeout": 5000
+  }
+}
